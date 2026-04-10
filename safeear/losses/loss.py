@@ -211,5 +211,4 @@ def compute_eer(target_scores, nontarget_scores):
     abs_diffs = np.abs(frr - far)
     min_index = np.argmin(abs_diffs)
     eer = np.mean((frr[min_index], far[min_index]))
-    print(thresholds[min_index])
     return eer, thresholds[min_index]

@@ -121,3 +121,6 @@ Werkzeug==3.0.2
 yarl==1.9.3
 zipp==3.17.0
 npy_append_array==0.9.16
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+python-multipart>=0.0.6

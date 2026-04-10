@@ -29,22 +29,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup()
     
-    # instantiate decouple model
-    print_only(f"Instantiating decouple model <{cfg.decouple_model._target_}>")
-    decouple_model: torch.nn.Module = hydra.utils.instantiate(cfg.decouple_model)
-    decouple_model.load_state_dict(torch.load(cfg.speechtokenizer_path))
-    # import pdb; pdb.set_trace()
-    
-    # instantiate detect model
-    print(f"Instantiating detect model <{cfg.detect_model._target_}>")
+    # instantiate detect model (Transformer / HuBERT-features path; no SpeechTokenizer)
+    print_only(f"Instantiating detect model <{cfg.detect_model._target_}>")
     detect_model: torch.nn.Module = hydra.utils.instantiate(cfg.detect_model)
-    # import pdb; pdb.set_trace()
-    
+
     # instantiate system
     print_only(f"Instantiating system <{cfg.system._target_}>")
     system: LightningModule = hydra.utils.instantiate(
         cfg.system,
-        decouple_model=decouple_model,
         detect_model=detect_model,
     )
     # instantiate callbacks
@@ -73,9 +65,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     
     trainer.fit(system, datamodule=datamodule)
     print_only("Training finished!")
-    best_k = {k: v.item() for k, v in checkpoint.best_k_models.items()}
-    with open(os.path.join(cfg.exp.dir, cfg.exp.name, "best_k_models.json"), "w") as f:
-        json.dump(best_k, f, indent=0)
+    best_k = {}
+    for cb in callbacks:
+        if isinstance(cb, pl.callbacks.ModelCheckpoint) and getattr(cb, "best_k_models", None):
+            best_k = {k: v.item() for k, v in cb.best_k_models.items()}
+            break
+    if best_k:
+        with open(os.path.join(cfg.exp.dir, cfg.exp.name, "best_k_models.json"), "w") as f:
+            json.dump(best_k, f, indent=0)
 
     import wandb
     if wandb.run:

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transformer 音频伪造检测</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+    canvas { width: 100%; max-height: 220px; background: #111; border-radius: 4px; }
+    .mel { margin-top: 0.5rem; }
+    .result { font-size: 1.1rem; margin: 0.5rem 0; }
+    .spoof { color: #c0392b; font-weight: bold; }
+    .bona { color: #27ae60; font-weight: bold; }
+    button { padding: 0.5rem 1rem; cursor: pointer; }
+    pre { background: #f4f4f4; padding: 0.75rem; overflow: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>基于 Transformer 的音频伪造检测（演示）</h1>
+  <p>上传 WAV/FLAC（16kHz 单声道为佳）。服务端需设置环境变量 <code>SAFEAR_CKPT</code> 指向训练或导出的权重。</p>
+
+  <input type="file" id="f" accept="audio/*" />
+  <button id="go" type="button">检测</button>
+
+  <div class="card" id="out" style="display:none;">
+    <div class="result" id="label"></div>
+    <canvas id="wave" height="180"></canvas>
+    <canvas class="mel" id="mel" height="200"></canvas>
+    <p>完整 JSON（可下载）：</p>
+    <pre id="json"></pre>
+    <button type="button" id="dl">下载结果为 JSON</button>
+  </div>
+
+  <script>
+    let lastJson = null;
+    function drawWave(canvas, data) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+      const h = canvas.height;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      const cw = canvas.clientWidth;
+      const ch = canvas.clientHeight;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, cw, ch);
+      if (!data.length) return;
+      ctx.strokeStyle = '#7bed9f';
+      ctx.beginPath();
+      const mid = ch / 2;
+      const amp = ch / 2 * 0.9;
+      for (let i = 0; i < data.length; i++) {
+        const x = (i / (data.length - 1)) * cw;
+        const y = mid - data[i] * amp;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    function drawMel(canvas, melDb) {
+      const ctx = canvas.getContext('2d');
+      const cw = canvas.clientWidth;
+      const ch = 200;
+      canvas.width = cw * devicePixelRatio;
+      canvas.height = ch * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      const rows = melDb.length;
+      const cols = melDb[0].length;
+      let minV = Infinity, maxV = -Infinity;
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+          const v = melDb[r][c];
+          if (v < minV) minV = v;
+          if (v > maxV) maxV = v;
+        }
+      const cellW = cw / cols;
+      const cellH = ch / rows;
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+          const t = (melDb[r][c] - minV) / (maxV - minV + 1e-8);
+          const g = Math.floor(t * 255);
+          ctx.fillStyle = `rgb(${g},${Math.floor(g*0.6)},${Math.floor(g*0.3)})`;
+          ctx.fillRect(c * cellW, r * cellH, cellW + 0.5, cellH + 0.5);
+        }
+    }
+    document.getElementById('go').onclick = async () => {
+      const inp = document.getElementById('f');
+      if (!inp.files.length) { alert('请选择音频文件'); return; }
+      const fd = new FormData();
+      fd.append('file', inp.files[0]);
+      const res = await fetch('/api/predict', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const t = await res.text();
+        alert('请求失败: ' + res.status + ' ' + t);
+        return;
+      }
+      const j = await res.json();
+      lastJson = j;
+      document.getElementById('out').style.display = 'block';
+      const el = document.getElementById('label');
+      const spoof = j.pred_label === 'spoof';
+      el.innerHTML = `判定：<span class="${spoof ? 'spoof' : 'bona'}">${spoof ? '伪造 (spoof)' : '真实 (bonafide)'}</span> &nbsp; P(真实)=${(j.prob_bonafide*100).toFixed(2)}% &nbsp; P(伪造)=${(j.prob_spoof*100).toFixed(2)}%`;
+      document.getElementById('json').textContent = JSON.stringify(j, null, 2);
+      drawWave(document.getElementById('wave'), j.waveform || []);
+      drawMel(document.getElementById('mel'), j.mel_db || [[]]);
+    };
+    document.getElementById('dl').onclick = () => {
+      if (!lastJson) return;
+      const blob = new Blob([JSON.stringify(lastJson, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'spoof_result.json';
+      a.click();
+    };
+  </script>
+</body>
+</html>

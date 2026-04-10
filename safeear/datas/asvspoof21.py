@@ -178,7 +178,7 @@ def collate_fn(batch):
         targets.append(target)
 
     wavs = pad_sequence(wavs)  # Pad wavs to the same length
-    feats = pad_sequence(feats).permute(0, 2, 1)  # Pad feats and permute to (batch_size, max_length, feature_dim)
+    feats = pad_sequence(feats)  # Pad feats to (batch_size, feature_dim, max_length)
     return wavs, feats, torch.tensor(targets).long()  # Convert targets to tensor
 
 class DataClass:

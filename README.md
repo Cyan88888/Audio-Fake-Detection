@@ -94,22 +94,56 @@ python dump_hubert_avg_feature.py datasets/ASVSpoof2021 datasets/ASVSpoof2021_Hu
 
 ## 📚Training
 
-Before starting training, please modify the parameter configurations in [`configs`](configs).
+### Transformer-only spoof detection (no SpeechTokenizer / privacy pipeline)
 
-Use the following commands to start training:
+This fork adds a **HuBERT frame features → Transformer classifier** path suitable for thesis work focused on *Transformer + spoof detection* (no `SpeechTokenizer` decoupling).
+
+- Config example: [`config/transformer_spoof19.yaml`](config/transformer_spoof19.yaml)
+- Lightning module: `safeear.trainer.transformer_trainer.TransformerSpoofTrainer`
+- Model: `safeear.models.detector_transformer.HuBERTTransformerDetector`
+
+Prepare HuBERT L9 `.npy` features as in **Data preparation**, then:
 
 ```shell
-python train.py --conf_dir config/train19.yaml
-python train.py --conf_dir config/train21.yaml
+python train.py --conf_dir config/transformer_spoof19.yaml
+python test.py --conf_dir config/transformer_spoof19.yaml --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/<best>.ckpt
 ```
+
+Set `SAFEAR_ASVSPOOF2019_ROOT` if your ASVspoof 2019 FLAC root is not `datas/datasets/ASVSpoof2019`.
+
+### Original SafeEar paper configs (legacy)
+
+The upstream README referred to `config/train19.yaml` / `config/train21.yaml`. If you still use **SpeechTokenizer + SafeEar1s** YAMLs under `Exps/`, you must restore the old `train.py`/`test.py` decouple block and `safeear.trainer.safeear_trainer` from the official repo; the default entrypoints above follow the **Transformer-only** layout.
 
 ## 📈Testing/Inference
 
-To evaluate a model on one or more GPUs, specify the `CUDA_VISIBLE_DEVICES`, `dataset`, `model` and `checkpoint`:
+### CLI prediction (HuBERT on-the-fly + checkpoint)
+
+Requires `model_zoos/hubert_base_ls960.pt` and a trained checkpoint:
 
 ```shell
-python test.py --conf_dir Exps/ASVspoof19/config.yaml
-python test.py --conf_dir Exps/ASVspoof21/config.yaml
+python -m inference.predict --audio path/to/sample.wav --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt
+```
+
+### Export detector weights for deployment
+
+```shell
+python inference/export_weights.py --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt --out inference/exports/detector.pt
+```
+
+### Web UI (upload audio)
+
+```shell
+export SAFEAR_CKPT=Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt
+uvicorn web.api:app --host 0.0.0.0 --port 8080
+```
+
+Open `http://127.0.0.1:8080/` in a browser.
+
+### Batch evaluation (Lightning)
+
+```shell
+python test.py --conf_dir config/transformer_spoof19.yaml --ckpt path/to.ckpt
 ```
 
 ## Bugs and Issues

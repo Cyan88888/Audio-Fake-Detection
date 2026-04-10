@@ -25,23 +25,14 @@ def train(cfg: DictConfig, args) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # instantiate datamodule
     print_only(f"Instantiating datamodule <{cfg.datamodule._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
-    
-    # instantiate decouple model
-    print_only(f"Instantiating decouple model <{cfg.decouple_model._target_}>")
-    decouple_model: torch.nn.Module = hydra.utils.instantiate(cfg.decouple_model)
-    decouple_model.load_state_dict(torch.load(cfg.speechtokenizer_path))
-    # import pdb; pdb.set_trace()
-    
-    # instantiate detect model
-    print(f"Instantiating detect model <{cfg.detect_model._target_}>")
+    datamodule.setup()
+
+    print_only(f"Instantiating detect model <{cfg.detect_model._target_}>")
     detect_model: torch.nn.Module = hydra.utils.instantiate(cfg.detect_model)
-    # import pdb; pdb.set_trace()
-    
-    # instantiate system
+
     print_only(f"Instantiating system <{cfg.system._target_}>")
     system: LightningModule = hydra.utils.instantiate(
         cfg.system,
-        decouple_model=decouple_model,
         detect_model=detect_model,
     )
     
@@ -51,7 +42,13 @@ def train(cfg: DictConfig, args) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         cfg.trainer,
         strategy=DDPStrategy(find_unused_parameters=True),
     )
-    
+
+    # Run validation first so dev-set threshold (e.g. val_mindcf) is stored for test acc_selected / f1_selected / etc.
+    if args.ckpt_path:
+        trainer.validate(system, datamodule=datamodule, ckpt_path=args.ckpt_path)
+    else:
+        trainer.validate(system, datamodule=datamodule)
+
     trainer.test(system, datamodule=datamodule, ckpt_path=args.ckpt_path)
 
 if __name__ == "__main__":
