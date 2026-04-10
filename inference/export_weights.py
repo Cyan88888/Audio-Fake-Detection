@@ -1,5 +1,6 @@
 """
-Export only ``detect_model`` weights (+ arch dict) from a Lightning checkpoint for deployment.
+Export only ``detect_model`` weights (+ arch dict) from a Lightning checkpoint for deployment
+(FrameTransformerDetector / SSL frame features).
 Usage:
   python inference/export_weights.py --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt \\
       --out inference/exports/detector.pt

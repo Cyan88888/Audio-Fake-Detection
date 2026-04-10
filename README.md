@@ -96,17 +96,39 @@ python dump_hubert_avg_feature.py datasets/ASVSpoof2021 datasets/ASVSpoof2021_Hu
 
 ### Transformer-only spoof detection (no SpeechTokenizer / privacy pipeline)
 
-This fork adds a **HuBERT frame features → Transformer classifier** path suitable for thesis work focused on *Transformer + spoof detection* (no `SpeechTokenizer` decoupling).
+This fork adds **frame-level features → Transformer classifier** paths suitable for thesis work focused on *Transformer + spoof detection* (no `SpeechTokenizer` decoupling).
 
-- Config example: [`config/transformer_spoof19.yaml`](config/transformer_spoof19.yaml)
+- HuBERT features: [`config/transformer_spoof19.yaml`](config/transformer_spoof19.yaml)
+- WavLM features (recommended for new runs): [`config/transformer_spoof19_wavlm.yaml`](config/transformer_spoof19_wavlm.yaml)
 - Lightning module: `safeear.trainer.transformer_trainer.TransformerSpoofTrainer`
-- Model: `safeear.models.detector_transformer.HuBERTTransformerDetector`
+- Model: `safeear.models.detector_transformer.FrameTransformerDetector` (alias `HuBERTTransformerDetector`)
+
+#### WavLM feature dump (train/eval `.npy` layout matches HuBERT pipeline)
+
+From repo root, mirror each `.../flac` tree into `.../ASVSpoof2019_WavLM_base/...` (create parent dirs first):
+
+```shell
+pip install 'transformers>=4.30.0'
+python datas/dump_wavlm_feature.py \
+  datas/datasets/ASVSpoof2019/LA/ASVspoof2019_LA_train/flac \
+  datas/datasets/ASVSpoof2019_WavLM_base/LA/ASVspoof2019_LA_train/flac
+# Repeat for LA_dev and LA_eval flac roots, matching paths in transformer_spoof19_wavlm.yaml
+```
+
+Then:
+
+```shell
+python train.py --conf_dir config/transformer_spoof19_wavlm.yaml
+python test.py --conf_dir config/transformer_spoof19_wavlm.yaml --ckpt_path Exps/TransformerSpoof19_wavlm_e30/checkpoints/<best>.ckpt
+```
+
+#### HuBERT L9 features (legacy / comparison)
 
 Prepare HuBERT L9 `.npy` features as in **Data preparation**, then:
 
 ```shell
 python train.py --conf_dir config/transformer_spoof19.yaml
-python test.py --conf_dir config/transformer_spoof19.yaml --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/<best>.ckpt
+python test.py --conf_dir config/transformer_spoof19.yaml --ckpt_path Exps/TransformerSpoof19_hubert_e30/checkpoints/<best>.ckpt
 ```
 
 Set `SAFEAR_ASVSPOOF2019_ROOT` if your ASVspoof 2019 FLAC root is not `datas/datasets/ASVSpoof2019`.
@@ -117,12 +139,13 @@ The upstream README referred to `config/train19.yaml` / `config/train21.yaml`. I
 
 ## 📈Testing/Inference
 
-### CLI prediction (HuBERT on-the-fly + checkpoint)
+### CLI prediction (WavLM or HuBERT on-the-fly + checkpoint)
 
-Requires `model_zoos/hubert_base_ls960.pt` and a trained checkpoint:
+Default uses WavLM (`microsoft/wavlm-base`, downloads on first run). For HuBERT, add `--feat hubert` and ensure `model_zoos/hubert_base_ls960.pt` exists.
 
 ```shell
-python -m inference.predict --audio path/to/sample.wav --ckpt Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt
+python -m inference.predict --audio path/to/sample.wav --ckpt Exps/TransformerSpoof19_wavlm_e30/checkpoints/last.ckpt
+python -m inference.predict --audio path/to/sample.wav --ckpt path.ckpt --feat hubert
 ```
 
 ### Export detector weights for deployment
@@ -134,7 +157,8 @@ python inference/export_weights.py --ckpt Exps/TransformerSpoof19_hubert_e30/che
 ### Web UI (upload audio)
 
 ```shell
-export SAFEAR_CKPT=Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt
+export SAFEAR_CKPT=Exps/TransformerSpoof19_wavlm_e30/checkpoints/last.ckpt
+# Optional: SAFEAR_FEAT=wavlm (default) or hubert
 uvicorn web.api:app --host 0.0.0.0 --port 8080
 ```
 
@@ -143,7 +167,7 @@ Open `http://127.0.0.1:8080/` in a browser.
 ### Batch evaluation (Lightning)
 
 ```shell
-python test.py --conf_dir config/transformer_spoof19.yaml --ckpt path/to.ckpt
+python test.py --conf_dir config/transformer_spoof19.yaml --ckpt_path path/to.ckpt
 ```
 
 ## Bugs and Issues

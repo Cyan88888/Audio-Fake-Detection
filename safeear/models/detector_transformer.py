@@ -1,5 +1,5 @@
 """
-Transformer-based spoof detector on precomputed frame features (e.g. HuBERT L9).
+Transformer-based spoof detector on precomputed frame features (e.g. WavLM or HuBERT).
 
 Input: feats (B, C, T) where C=input_dim (e.g. 768), T = time frames.
 Does not use SpeechTokenizer / RVQ (privacy decoupling removed for thesis focus).
@@ -12,9 +12,9 @@ import torch.nn as nn
 from .safeear import TransformerClassifier
 
 
-class HuBERTTransformerDetector(nn.Module):
+class FrameTransformerDetector(nn.Module):
     """
-    Projects HuBERT (or similar) frames to embedding_dim, then TransformerClassifier.
+    Projects frame-level sequence features (e.g. SSL embeddings) to embedding_dim, then TransformerClassifier.
 
     Forward:
         feats: (B, input_dim, T) — same layout as ASVspoof DataModule collate_fn output.
@@ -63,3 +63,7 @@ class HuBERTTransformerDetector(nn.Module):
         x = self.proj(x)
         x = x.transpose(1, 2)  # (B, embedding_dim, T)
         return self.classifier(x)
+
+
+# Backward-compatible alias (older configs / checkpoints may reference this name).
+HuBERTTransformerDetector = FrameTransformerDetector

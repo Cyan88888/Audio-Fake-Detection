@@ -1,12 +1,15 @@
 """
-CLI: predict spoof/bonafide for one audio file using HuBERT + Transformer detector.
+CLI: predict spoof/bonafide for one audio file using frame features + Transformer detector.
 
-Run from repo root:  python -m inference.predict --audio path.wav --ckpt path.ckpt
+Run from repo root:
+  python -m inference.predict --audio path.wav --ckpt path.ckpt
+  python -m inference.predict --audio path.wav --ckpt path.ckpt --feat hubert
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +19,7 @@ if str(_ROOT) not in sys.path:
 
 import torch
 
-from inference.hubert_featurizer import HubertFeaturizer
+from inference.featurizer_factory import create_featurizer
 from inference.load_model import load_detector_auto
 
 
@@ -28,7 +31,14 @@ def main():
         default=None,
         help="Lightning .ckpt or exported .pt bundle (from inference/export_weights.py)",
     )
+    parser.add_argument(
+        "--feat",
+        choices=("wavlm", "hubert"),
+        default=os.environ.get("SAFEAR_FEAT", "wavlm"),
+        help="Frame backend: WavLM (default) or fairseq HuBERT",
+    )
     parser.add_argument("--hubert_ckpt", default=str(_ROOT / "model_zoos" / "hubert_base_ls960.pt"))
+    parser.add_argument("--wavlm_model", default="microsoft/wavlm-base")
     parser.add_argument("--max_len", type=int, default=64600)
     parser.add_argument("--device", default=None)
     parser.add_argument("--json", action="store_true", help="Print JSON only")
@@ -43,7 +53,12 @@ def main():
     model.eval()
     model.to(device)
 
-    featurizer = HubertFeaturizer(ckpt_path=args.hubert_ckpt, device=device)
+    featurizer = create_featurizer(
+        device,
+        feat_kind=args.feat,
+        hubert_ckpt=args.hubert_ckpt,
+        wavlm_model=args.wavlm_model,
+    )
     feat = featurizer.file_to_feat(args.audio, max_len=args.max_len).to(device)
 
     with torch.no_grad():

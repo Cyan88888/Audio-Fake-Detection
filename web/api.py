@@ -3,6 +3,7 @@ FastAPI service: upload audio -> spoof detection + waveform / log-mel for visual
 
 Start (from repo root, after training/export):
   export SAFEAR_CKPT=Exps/TransformerSpoof19_hubert_e30/checkpoints/last.ckpt
+  # Optional: SAFEAR_FEAT=wavlm (default) or hubert; SAFEAR_WAVLM=microsoft/wavlm-base
   uvicorn web.api:app --host 0.0.0.0 --port 8080
 """
 from __future__ import annotations
@@ -27,13 +28,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from inference.hubert_featurizer import HubertFeaturizer
+from inference.featurizer_factory import create_featurizer
 from inference.load_model import load_detector_auto
 
 _WEB_DIR = Path(__file__).resolve().parent
 
 _detector: Optional[nn.Module] = None
-_featurizer: Optional[HubertFeaturizer] = None
+_featurizer: Optional[Any] = None
 _device: Optional[torch.device] = None
 
 
@@ -47,11 +48,18 @@ async def lifespan(app: FastAPI):
     _device = _get_device()
     ckpt = os.environ.get("SAFEAR_CKPT")
     hubert = os.environ.get("SAFEAR_HUBERT", str(_ROOT / "model_zoos" / "hubert_base_ls960.pt"))
+    wavlm_model = os.environ.get("SAFEAR_WAVLM", "microsoft/wavlm-base")
+    feat_kind = os.environ.get("SAFEAR_FEAT", "wavlm")
     if ckpt and Path(ckpt).is_file():
         _detector = load_detector_auto(ckpt, map_location=str(_device))
         _detector.eval()
         _detector.to(_device)
-        _featurizer = HubertFeaturizer(ckpt_path=hubert, device=_device)
+        _featurizer = create_featurizer(
+            _device,
+            feat_kind=feat_kind,
+            hubert_ckpt=hubert,
+            wavlm_model=wavlm_model,
+        )
     yield
 
 
@@ -90,7 +98,11 @@ def _wav_mel_for_plot(wav_1d: torch.Tensor, sr: int, max_wave_points: int = 4000
 @app.get("/health")
 def health():
     ok = _detector is not None and _featurizer is not None
-    return {"status": "ok" if ok else "no_model", "ckpt": os.environ.get("SAFEAR_CKPT")}
+    return {
+        "status": "ok" if ok else "no_model",
+        "ckpt": os.environ.get("SAFEAR_CKPT"),
+        "feat": os.environ.get("SAFEAR_FEAT", "wavlm"),
+    }
 
 
 @app.post("/api/predict")

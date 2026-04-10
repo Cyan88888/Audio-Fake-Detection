@@ -1,4 +1,4 @@
-"""Load HuBERTTransformerDetector from Lightning checkpoint or exported .pt bundle."""
+"""Load FrameTransformerDetector from Lightning checkpoint or exported .pt bundle."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,13 +40,13 @@ def load_detector_bundle(
     pt_path: str,
     map_location: Optional[str] = None,
 ) -> Tuple[torch.nn.Module, Dict[str, Any]]:
-    from safeear.models.detector_transformer import HuBERTTransformerDetector
+    from safeear.models.detector_transformer import FrameTransformerDetector
 
     bundle = torch.load(pt_path, map_location=map_location or "cpu")
     if not isinstance(bundle, dict) or "state_dict" not in bundle:
         raise ValueError(f"Expected dict with 'state_dict' and 'arch' keys, got {type(bundle)}")
     arch = bundle.get("arch", {})
-    model = HuBERTTransformerDetector(**arch)
+    model = FrameTransformerDetector(**arch)
     model.load_state_dict(bundle["state_dict"], strict=True)
     return model, bundle.get("meta", {})
 

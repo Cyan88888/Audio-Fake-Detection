@@ -124,3 +124,5 @@ npy_append_array==0.9.16
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 python-multipart>=0.0.6
+# Pin for torch 1.13.x: transformers 4.41+ may require PyTorch>=2.1 (see README).
+transformers==4.36.2

@@ -1,5 +1,6 @@
-# Transformer spoof detection on HuBERT L9 frame features (ASVspoof 2019).
-# No SpeechTokenizer / privacy decoupling. Train: python train.py --conf_dir config/transformer_spoof19.yaml
+# Transformer spoof detection on WavLM frame features (ASVspoof 2019).
+# Precompute features with: python datas/dump_wavlm_feature.py <flac_root> <out_root>
+# Then train: python train.py --conf_dir config/transformer_spoof19_wavlm.yaml
 
 datamodule:
   _target_: safeear.datas.asvspoof19.DataModule
@@ -11,15 +12,15 @@ datamodule:
     train_path:
       - datas/ASVSpoof2019/train.tsv
       - datas/ASVSpoof2019/ASVspoof2019.LA.cm.train.trn.txt
-      - datas/datasets/ASVSpoof2019_Hubert_L9/LA/ASVspoof2019_LA_train/flac
+      - datas/datasets/ASVSpoof2019_WavLM_base/LA/ASVspoof2019_LA_train/flac
     val_path:
       - datas/ASVSpoof2019/dev.tsv
       - datas/ASVSpoof2019/ASVspoof2019.LA.cm.dev.trl.txt
-      - datas/datasets/ASVSpoof2019_Hubert_L9/LA/ASVspoof2019_LA_dev/flac
+      - datas/datasets/ASVSpoof2019_WavLM_base/LA/ASVspoof2019_LA_dev/flac
     test_path:
       - datas/ASVSpoof2019/eval.tsv
       - datas/ASVSpoof2019/ASVspoof2019.LA.cm.eval.trl.txt
-      - datas/datasets/ASVSpoof2019_Hubert_L9/LA/ASVspoof2019_LA_eval/flac
+      - datas/datasets/ASVSpoof2019_WavLM_base/LA/ASVspoof2019_LA_eval/flac
     max_len: 64600
 
 detect_model:
@@ -48,7 +49,7 @@ system:
 
 exp:
   dir: Exps/
-  name: TransformerSpoof19_hubert_e30
+  name: TransformerSpoof19_wavlm_e30
 
 early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping

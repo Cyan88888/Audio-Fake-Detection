@@ -1,1 +1,1 @@
-# Inference utilities (HuBERT featurizer, load checkpoint, predict CLI).
+# Inference utilities (WavLM / HuBERT featurizers, load checkpoint, predict CLI).
