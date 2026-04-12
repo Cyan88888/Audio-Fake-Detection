@@ -8,6 +8,8 @@ import math
 import os
 from typing import Any, List, Optional
 
+import json
+
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -210,6 +212,16 @@ class TransformerSpoofTrainer(pl.LightningModule):
             np.save(os.path.join(self.save_score_path, "roc_thresholds.npy"), roc_th)
             np.save(os.path.join(self.save_score_path, "pr_curve.npy"), np.stack([pr_recall, pr_precision], axis=0))
             np.save(os.path.join(self.save_score_path, "pr_thresholds.npy"), pr_th)
+            # For offline plots (e.g. scripts/plot_experiment.py confusion matrix)
+            np.save(os.path.join(self.save_score_path, "test_labels.npy"), all_index.astype(np.int64))
+            np.save(os.path.join(self.save_score_path, "test_prob_bonafide.npy"), all_score.astype(np.float64))
+            meta_path = os.path.join(self.save_score_path, "test_cm_meta.json")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"threshold_bonafide": float(self.threshold_fixed_bonafide)},
+                    f,
+                    indent=2,
+                )
 
         self.log_dict(
             {
