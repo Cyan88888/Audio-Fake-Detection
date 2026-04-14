@@ -44,6 +44,15 @@ system:
   threshold_mode: val_mindcf
   threshold_fixed_bonafide: 0.5
   p_target: 0.05
+  use_min_tdcf: true
+  tdcf_la_root: datas/datasets/ASVSpoof2019/LA
+  tdcf_p_tar: 0.9405
+  tdcf_p_non: 0.0095
+  tdcf_p_spoof: 0.05
+  tdcf_c_miss_asv: 1.0
+  tdcf_c_fa_asv: 10.0
+  tdcf_c_miss_cm: 1.0
+  tdcf_c_fa_cm: 10.0
   warmup_epochs_ratio: 0.1
   weight_decay: 0.0001
 

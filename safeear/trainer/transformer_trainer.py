@@ -18,6 +18,7 @@ from pytorch_lightning.trainer.states import TrainerFn
 
 from ..losses.loss import compute_eer
 from ..utils.binary_metrics import compute_binary_classification_metrics, compute_min_dcf
+from ..utils.tdcf_metrics import compute_min_tdcf_from_cm_bonafide_score, load_asvspoof2019_la_asv_scores
 
 
 def _get_feat_target_batch(batch):
@@ -57,6 +58,15 @@ class TransformerSpoofTrainer(pl.LightningModule):
         threshold_mode: str = "val_mindcf",
         threshold_fixed_bonafide: float = 0.5,
         p_target: float = 0.05,
+        use_min_tdcf: bool = True,
+        tdcf_la_root: str = "datas/datasets/ASVSpoof2019/LA",
+        tdcf_p_tar: float = 0.9405,
+        tdcf_p_non: float = 0.0095,
+        tdcf_p_spoof: float = 0.05,
+        tdcf_c_miss_asv: float = 1.0,
+        tdcf_c_fa_asv: float = 10.0,
+        tdcf_c_miss_cm: float = 1.0,
+        tdcf_c_fa_cm: float = 10.0,
         warmup_epochs_ratio: float = 0.1,
         weight_decay: float = 1e-4,
         **kwargs: Any,
@@ -69,8 +79,23 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.threshold_mode = threshold_mode
         self.threshold_fixed_bonafide = threshold_fixed_bonafide
         self.p_target = p_target
+        self.use_min_tdcf = use_min_tdcf
+        self.tdcf_p_tar = tdcf_p_tar
+        self.tdcf_p_non = tdcf_p_non
+        self.tdcf_p_spoof = tdcf_p_spoof
+        self.tdcf_c_miss_asv = tdcf_c_miss_asv
+        self.tdcf_c_fa_asv = tdcf_c_fa_asv
+        self.tdcf_c_miss_cm = tdcf_c_miss_cm
+        self.tdcf_c_fa_cm = tdcf_c_fa_cm
         self.warmup_epochs_ratio = warmup_epochs_ratio
         self.weight_decay = weight_decay
+        self._asv_scores = None
+        if self.use_min_tdcf:
+            try:
+                self._asv_scores = load_asvspoof2019_la_asv_scores(tdcf_la_root)
+            except Exception as e:
+                self.print(f"[WARN] Failed to load ASV scores for min-tDCF from {tdcf_la_root}: {e}")
+                self._asv_scores = None
 
         self.val_index_loader: List[torch.Tensor] = []
         self.val_score_loader: List[torch.Tensor] = []
@@ -132,6 +157,22 @@ class TransformerSpoofTrainer(pl.LightningModule):
             c_miss=1.0,
             c_fa=1.0,
         )
+        min_tdcf, min_tdcf_th = float("nan"), float("nan")
+        if self._asv_scores is not None:
+            min_tdcf, min_tdcf_th = compute_min_tdcf_from_cm_bonafide_score(
+                cm_bonafide_scores=all_score,
+                cm_labels=all_index,
+                asv_target_scores=self._asv_scores["dev"]["target"],
+                asv_nontarget_scores=self._asv_scores["dev"]["nontarget"],
+                asv_spoof_scores=self._asv_scores["dev"]["spoof"],
+                p_tar=self.tdcf_p_tar,
+                p_non=self.tdcf_p_non,
+                p_spoof=self.tdcf_p_spoof,
+                c_miss_asv=self.tdcf_c_miss_asv,
+                c_fa_asv=self.tdcf_c_fa_asv,
+                c_miss_cm=self.tdcf_c_miss_cm,
+                c_fa_cm=self.tdcf_c_fa_cm,
+            )
 
         self.log_dict(
             {
@@ -145,6 +186,8 @@ class TransformerSpoofTrainer(pl.LightningModule):
                 "val_pr_ap": metrics_05["pr_ap"],
                 "val_minDCF": min_dcf,
                 "val_minDCF_th": float(min_dcf_th),
+                "val_min_tDCF": min_tdcf,
+                "val_min_tDCF_th": min_tdcf_th,
             },
             sync_dist=True,
             on_epoch=True,
@@ -203,6 +246,22 @@ class TransformerSpoofTrainer(pl.LightningModule):
             c_miss=1.0,
             c_fa=1.0,
         )
+        min_tdcf, min_tdcf_th = float("nan"), float("nan")
+        if self._asv_scores is not None:
+            min_tdcf, min_tdcf_th = compute_min_tdcf_from_cm_bonafide_score(
+                cm_bonafide_scores=all_score,
+                cm_labels=all_index,
+                asv_target_scores=self._asv_scores["eval"]["target"],
+                asv_nontarget_scores=self._asv_scores["eval"]["nontarget"],
+                asv_spoof_scores=self._asv_scores["eval"]["spoof"],
+                p_tar=self.tdcf_p_tar,
+                p_non=self.tdcf_p_non,
+                p_spoof=self.tdcf_p_spoof,
+                c_miss_asv=self.tdcf_c_miss_asv,
+                c_fa_asv=self.tdcf_c_fa_asv,
+                c_miss_cm=self.tdcf_c_miss_cm,
+                c_fa_cm=self.tdcf_c_fa_cm,
+            )
 
         if self.save_score_path:
             os.makedirs(self.save_score_path, exist_ok=True)
@@ -235,6 +294,8 @@ class TransformerSpoofTrainer(pl.LightningModule):
                 "test_pr_ap": metrics_05["pr_ap"],
                 "test_minDCF": min_dcf,
                 "test_minDCF_th": float(min_dcf_th),
+                "test_min_tDCF": min_tdcf,
+                "test_min_tDCF_th": min_tdcf_th,
             },
             sync_dist=True,
             on_epoch=True,
