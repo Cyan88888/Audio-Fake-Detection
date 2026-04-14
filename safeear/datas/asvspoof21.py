@@ -103,7 +103,8 @@ class ASVSppof2021(Dataset):
                 audio = torchaudio.functional.apply_codec(audio, sr, format_select)
 
         avg_hubert_feat = torch.tensor(load_feature(feat_path.with_suffix(".npy")))
-        waveform_info = self.mapping[self.lines[index].split('.')[0]]
+        utt_id = relative_path.stem
+        waveform_info = self.mapping[utt_id]
         target = 1 if waveform_info == 'spoof' else 0
 
         if avg_hubert_feat.ndim == 3:
@@ -172,7 +173,12 @@ def collate_fn(batch):
     wavs = []
     feats = []
     targets = []
-    for wav, feat, target in batch:
+    for item in batch:
+        # 兼容验证/测试集返回值（多了audio_path）
+        if len(item) == 4:
+            wav, feat, target, _ = item
+        else:
+            wav, feat, target = item
         wavs.append(wav)
         feats.append(feat)
         targets.append(target)
@@ -210,7 +216,8 @@ class DataClass:
             self.val_path[1], 
             self.val_path[2], 
             self.max_len, 
-            is_train=True
+            is_train=False,
+            codec=False
         )
         self.test = ASVSppof2021(
             self.test_path[0], 
@@ -294,4 +301,5 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
+            collate_fn=collate_fn
         )
