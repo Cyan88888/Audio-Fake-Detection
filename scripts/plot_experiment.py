@@ -42,7 +42,7 @@ def _find_latest_metrics_csv(exp_dir: Path) -> Path | None:
     base = exp_dir / "csv_logs"
     if not base.is_dir():
         return None
-    best: tuple[int, Path] | None = None
+    all_candidates: list[tuple[int, Path]] = []
     for child in base.iterdir():
         if not child.is_dir():
             continue
@@ -53,10 +53,29 @@ def _find_latest_metrics_csv(exp_dir: Path) -> Path | None:
         csv_path = child / "metrics.csv"
         if not csv_path.is_file():
             continue
-        cand = (ver, csv_path)
-        if best is None or ver > best[0]:
-            best = cand
-    return best[1] if best else None
+        all_candidates.append((ver, csv_path))
+    if not all_candidates:
+        return None
+
+    # Prefer the newest version that contains training-step loss,
+    # because test-only runs may create a newer version without train curves.
+    all_candidates.sort(key=lambda x: x[0], reverse=True)
+    for _, p in all_candidates:
+        try:
+            with p.open(newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                header = reader.fieldnames or []
+                if "train_loss_step" not in header:
+                    continue
+                for row in reader:
+                    v = (row.get("train_loss_step") or "").strip()
+                    if v:
+                        return p
+        except OSError:
+            continue
+
+    # Fallback to the latest available metrics file.
+    return all_candidates[0][1]
 
 
 def _f(row: dict[str, str], key: str) -> float | None:
@@ -135,6 +154,7 @@ def _plot_metrics_csv(csv_path: Path, out_dir: Path) -> list[Path]:
 
     if epochs:
         series = [
+            ([_f(r, "val_loss") if _f(r, "val_loss") is not None else float("nan") for r in rows if _f(r, "val_eer") is not None and _i(r, "epoch") is not None], "val_loss", "Validation loss"),
             (val_eer, "val_eer", "Validation EER"),
             (val_mindcf, "val_minDCF", "Validation minDCF"),
             (val_roc, "val_roc_auc", "Validation ROC-AUC"),

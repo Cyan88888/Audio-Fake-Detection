@@ -67,6 +67,9 @@ class TransformerSpoofTrainer(pl.LightningModule):
         tdcf_c_fa_asv: float = 10.0,
         tdcf_c_miss_cm: float = 1.0,
         tdcf_c_fa_cm: float = 10.0,
+        label_smoothing: float = 0.0,
+        aug_time_mask_prob: float = 0.0,
+        aug_time_mask_max_frames: int = 0,
         warmup_epochs_ratio: float = 0.1,
         weight_decay: float = 1e-4,
         **kwargs: Any,
@@ -87,6 +90,9 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.tdcf_c_fa_asv = tdcf_c_fa_asv
         self.tdcf_c_miss_cm = tdcf_c_miss_cm
         self.tdcf_c_fa_cm = tdcf_c_fa_cm
+        self.label_smoothing = float(label_smoothing)
+        self.aug_time_mask_prob = float(aug_time_mask_prob)
+        self.aug_time_mask_max_frames = int(aug_time_mask_max_frames)
         self.warmup_epochs_ratio = warmup_epochs_ratio
         self.weight_decay = weight_decay
         self._asv_scores = None
@@ -99,17 +105,46 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
         self.val_index_loader: List[torch.Tensor] = []
         self.val_score_loader: List[torch.Tensor] = []
+        self.val_loss_loader: List[torch.Tensor] = []
         self.eval_index_loader: List[torch.Tensor] = []
         self.eval_score_loader: List[torch.Tensor] = []
+        self.eval_loss_loader: List[torch.Tensor] = []
         self.eval_filename_loader: List[Any] = []
+
+    def _apply_time_mask(self, feat: torch.Tensor) -> torch.Tensor:
+        """Apply simple per-utterance time masking on (B, C, T) features."""
+        if self.aug_time_mask_prob <= 0.0 or self.aug_time_mask_max_frames <= 0:
+            return feat
+        if feat.dim() != 3:
+            return feat
+        bsz, _, t = feat.shape
+        if t <= 1:
+            return feat
+        max_w = min(self.aug_time_mask_max_frames, t)
+        if max_w <= 0:
+            return feat
+
+        out = feat.clone()
+        mask_flags = torch.rand(bsz, device=feat.device) < self.aug_time_mask_prob
+        mask_ids = torch.nonzero(mask_flags, as_tuple=False).view(-1)
+        for b in mask_ids.tolist():
+            w = int(torch.randint(1, max_w + 1, (1,), device=feat.device).item())
+            if w >= t:
+                out[b] = 0.0
+                continue
+            s = int(torch.randint(0, t - w + 1, (1,), device=feat.device).item())
+            out[b, :, s : s + w] = 0.0
+        return out
 
     def forward(self, batch, is_train: bool = True):
         feat, target, audio_path = _get_feat_target_batch(batch)
         feat = feat.to(memory_format=torch.contiguous_format).float()
+        if is_train:
+            feat = self._apply_time_mask(feat)
         target = target.long()
         logits, _ = self.detect_model(feat)
         if is_train:
-            loss = F.cross_entropy(logits, target)
+            loss = F.cross_entropy(logits, target, label_smoothing=self.label_smoothing)
             return loss, logits, target
         with torch.no_grad():
             prob_bonafide = torch.softmax(logits, dim=-1)[:, 0]
@@ -129,9 +164,16 @@ class TransformerSpoofTrainer(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        _, _, prob_bonafide, target = self(batch, is_train=False)
+        feat, target, _ = _get_feat_target_batch(batch)
+        feat = feat.to(memory_format=torch.contiguous_format).float()
+        target = target.long()
+        with torch.no_grad():
+            logits, _ = self.detect_model(feat)
+            prob_bonafide = torch.softmax(logits, dim=-1)[:, 0]
+            val_loss = F.cross_entropy(logits, target)
         self.val_index_loader.append(target)
         self.val_score_loader.append(prob_bonafide)
+        self.val_loss_loader.append(val_loss.detach())
 
     def on_validation_epoch_end(self):
         if not self.val_index_loader:
@@ -176,6 +218,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
         self.log_dict(
             {
+                "val_loss": torch.stack(self.val_loss_loader).mean(),
                 "val_eer": val_eer,
                 "val_eer_reverse_score": other_val_eer,
                 "val_acc": metrics_05["acc"],
@@ -197,6 +240,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
         self.val_index_loader.clear()
         self.val_score_loader.clear()
+        self.val_loss_loader.clear()
 
         # LR logging / schedule only during fit(); validate()/test() may return optimizers as a list or have no training step.
         if getattr(self.trainer.state, "fn", None) != TrainerFn.FITTING:
@@ -217,9 +261,16 @@ class TransformerSpoofTrainer(pl.LightningModule):
         adjust_learning_rate(opt, self.current_epoch, self.lr, warmup, max_ep)
 
     def test_step(self, batch, batch_idx):
-        audio_path, _, prob_bonafide, target = self(batch, is_train=False)
+        feat, target, audio_path = _get_feat_target_batch(batch)
+        feat = feat.to(memory_format=torch.contiguous_format).float()
+        target = target.long()
+        with torch.no_grad():
+            logits, _ = self.detect_model(feat)
+            prob_bonafide = torch.softmax(logits, dim=-1)[:, 0]
+            test_loss = F.cross_entropy(logits, target)
         self.eval_index_loader.append(target)
         self.eval_score_loader.append(prob_bonafide)
+        self.eval_loss_loader.append(test_loss.detach())
         self.eval_filename_loader.append(audio_path)
 
     def on_test_epoch_end(self):
@@ -284,6 +335,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
         self.log_dict(
             {
+                "test_loss": torch.stack(self.eval_loss_loader).mean(),
                 "test_eer": eval_eer,
                 "test_eer_reverse_score": other_eval_eer,
                 "test_acc": metrics_05["acc"],
@@ -305,6 +357,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
         self.eval_index_loader.clear()
         self.eval_score_loader.clear()
+        self.eval_loss_loader.clear()
         self.eval_filename_loader.clear()
 
     def configure_optimizers(self):
