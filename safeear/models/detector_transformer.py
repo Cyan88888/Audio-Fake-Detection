@@ -31,6 +31,7 @@ class FrameTransformerDetector(nn.Module):
         dropout_rate: float = 0.1,
         attention_dropout: float = 0.1,
         stochastic_depth_rate: float = 0.1,
+        pooling: str = "attention",
         positional_embedding: str = "sine",
         sequence_length: int = 512,
     ):
@@ -51,6 +52,7 @@ class FrameTransformerDetector(nn.Module):
             dropout_rate=dropout_rate,
             attention_dropout=attention_dropout,
             stochastic_depth_rate=stochastic_depth_rate,
+            pooling=pooling,
             positional_embedding=positional_embedding,
             sequence_length=sequence_length,
         )

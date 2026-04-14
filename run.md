@@ -149,3 +149,121 @@ uvicorn web.api:app --host 0.0.0.0 --port 8080
 3. **仅 CPU / 其他 CUDA 版本**：需自行把 PyTorch 安装行换成 [pytorch.org](https://pytorch.org) 上对应命令，其余步骤不变。
 
 若你希望 **「从全新 clone 到跑通」** 再缩短成最少条数，可以说一下你是否已有 **dump 好的 WavLM 特征**，我可以给一版「跳过特征导出」的最短指令链。
+
+-------------------------------------------
+
+已完成你要的“阶段1（深度与正则）”落地准备：
+
+### 我实际改了哪些文件
+
+- 新增配置：
+  - `config/ablation_s1_base.yaml`
+  - `config/ablation_s1_l3_d015.yaml`
+  - `config/ablation_s1_l4_d020.yaml`
+  - `config/ablation_s1_l2_h16_d015.yaml`
+- 新增运行脚本：
+  - `scripts/run_stage1_ablation.sh`
+
+这 4 个配置分别对应你要求的：
+- 基线：2层、8头、dropout=0.1
+- 3层、8头、dropout=0.15
+- 4层、8头、dropout=0.2
+- 2层、16头、dropout=0.15
+
+并保持了你当前 tDCF 配置（`use_min_tdcf: true` + `tdcf_la_root`）。
+
+---
+
+## 具体运行步骤（可直接执行）
+
+### 1) 进入项目目录
+```bash
+cd /root/autodl-tmp/SafeEar
+```
+
+### 2) 逐个训练四组实验
+```bash
+python train.py --conf_dir config/ablation_s1_base.yaml
+```
+
+```bash
+python train.py --conf_dir config/ablation_s1_l3_d015.yaml
+```
+
+```bash
+python train.py --conf_dir config/ablation_s1_l4_d020.yaml
+```
+
+```bash
+python train.py --conf_dir config/ablation_s1_l2_h16_d015.yaml
+```
+
+> 也可一次性按顺序跑：
+```bash
+bash scripts/run_stage1_ablation.sh
+```
+
+### 3) 查看每组最优 checkpoint
+```bash
+ls -la Exps/Ablation_S1_base/checkpoints
+```
+
+```bash
+ls -la Exps/Ablation_S1_l3_d015/checkpoints
+```
+
+```bash
+ls -la Exps/Ablation_S1_l4_d020/checkpoints
+```
+
+```bash
+ls -la Exps/Ablation_S1_l2_h16_d015/checkpoints
+```
+
+### 4) 分别测试（把 `<best>.ckpt` 替换成真实文件名）
+```bash
+python test.py --conf_dir config/ablation_s1_base.yaml --ckpt_path Exps/Ablation_S1_base/checkpoints/<best>.ckpt
+```
+
+```bash
+python test.py --conf_dir config/ablation_s1_l3_d015.yaml --ckpt_path Exps/Ablation_S1_l3_d015/checkpoints/<best>.ckpt
+```
+
+```bash
+python test.py --conf_dir config/ablation_s1_l4_d020.yaml --ckpt_path Exps/Ablation_S1_l4_d020/checkpoints/<best>.ckpt
+```
+
+```bash
+python test.py --conf_dir config/ablation_s1_l2_h16_d015.yaml --ckpt_path Exps/Ablation_S1_l2_h16_d015/checkpoints/<best>.ckpt
+```
+
+### 5) 画图（训练曲线/ROC/PR/混淆矩阵）
+```bash
+python scripts/plot_experiment.py --exp Exps/Ablation_S1_base
+```
+
+```bash
+python scripts/plot_experiment.py --exp Exps/Ablation_S1_l3_d015
+```
+
+```bash
+python scripts/plot_experiment.py --exp Exps/Ablation_S1_l4_d020
+```
+
+```bash
+python scripts/plot_experiment.py --exp Exps/Ablation_S1_l2_h16_d015
+```
+
+---
+
+## 结果对比建议（论文主表）
+
+每组提取：
+- `test_eer`
+- `test_minDCF`
+- `test_min_tDCF`
+- `test_precision`
+- `test_recall`
+- `test_roc_auc`
+
+如果你要，我下一步可以给你一个 `results_stage1.csv` 模板（含“相对基线提升Δ”列），你直接填日志数值就能贴到论文里。

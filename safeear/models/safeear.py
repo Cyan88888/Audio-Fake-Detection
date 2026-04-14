@@ -811,15 +811,20 @@ class TransformerClassifier(Module):
                  dropout_rate=0.1,
                  attention_dropout=0.1,
                  stochastic_depth_rate=0.1,
+                 pooling="attention",
                  positional_embedding='sine',
                  sequence_length=10000,
                  *args, **kwargs):
         super().__init__()
         positional_embedding = positional_embedding if \
             positional_embedding in ['sine', 'learnable', 'none'] else 'sine'
+        pooling = pooling.lower()
+        if pooling not in ["attention", "mean", "max", "meanmax"]:
+            raise ValueError(f"Unsupported pooling: {pooling}")
         dim_feedforward = int(embedding_dim * mlp_ratio)
         self.embedding_dim = embedding_dim
         self.sequence_length = sequence_length
+        self.pooling = pooling
 
         assert sequence_length is not None or positional_embedding == 'none'
 
@@ -845,6 +850,11 @@ class TransformerClassifier(Module):
         self.norm = LayerNorm(embedding_dim)
         self.flattener = nn.Flatten(2, 3)
         self.attention_pool = Linear(self.embedding_dim, 1)
+        self.pool_proj = (
+            Linear(self.embedding_dim * 2, self.embedding_dim)
+            if self.pooling == "meanmax"
+            else Identity()
+        )
         self.fc = Linear(embedding_dim, num_classes)
         self.apply(self.init_weight)
 
@@ -857,9 +867,18 @@ class TransformerClassifier(Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
-        
-        feature = torch.matmul(F.softmax(self.attention_pool(
-            x), dim=1).transpose(-1, -2), x).squeeze(-2)
+
+        if self.pooling == "attention":
+            feature = torch.matmul(
+                F.softmax(self.attention_pool(x), dim=1).transpose(-1, -2), x
+            ).squeeze(-2)
+        elif self.pooling == "mean":
+            feature = x.mean(dim=1)
+        elif self.pooling == "max":
+            feature = x.max(dim=1).values
+        else:  # meanmax
+            feature = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=-1)
+            feature = self.pool_proj(feature)
         logits = self.fc(feature)
         
         return logits, feature
