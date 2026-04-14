@@ -27,7 +27,15 @@ def load_feature(feat_path):
     return feat
 
 class ASVSppof2019(Dataset):
-    def __init__(self, tsv_path, protocol_path, feat_dir, max_len=64600, is_train=True):
+    def __init__(
+        self,
+        tsv_path,
+        protocol_path,
+        feat_dir,
+        max_len=64600,
+        is_train=True,
+        eval_return_full=False,
+    ):
         super().__init__()
         # 读取TSV文件（仅获取文件名，不使用TSV中的root）
         _, self.lines = get_path_iterator(tsv_path)
@@ -39,6 +47,7 @@ class ASVSppof2019(Dataset):
         )
         self.max_len = max_len 
         self.is_train = is_train
+        self.eval_return_full = bool(eval_return_full)
         
         # 核心修复：根据数据集类型选择正确的音频子目录
         if "train" in str(feat_dir) or "train" in str(tsv_path):
@@ -120,6 +129,10 @@ class ASVSppof2019(Dataset):
             else:
                 return audio[:, st:ed], avg_hubert_feat[:, feat_st:feat_st + feat_duration], target
         
+        # 验证/测试集：若开启 eval_return_full，直接返回完整特征给 TTA 切段
+        if not self.is_train and self.eval_return_full:
+            return audio, avg_hubert_feat, target, str(audio_path)
+
         # 验证/测试集：固定裁剪
         if not self.is_train and audio.shape[1] > self.max_len:
             st = 0
@@ -157,19 +170,27 @@ def collate_fn(batch):
     wavs = []
     feats = []
     targets = []
+    audio_paths = []
+    feat_lengths = []
     for item in batch:
         # 兼容测试集返回值（多了audio_path）
         if len(item) == 4:
-            wav, feat, target, _ = item
+            wav, feat, target, audio_path = item
+            audio_paths.append(audio_path)
         else:
             wav, feat, target = item
         wavs.append(wav)
         feats.append(feat)
         targets.append(target)
+        feat_lengths.append(feat.shape[1])
 
     wavs = pad_sequence(wavs)
     feats = pad_sequence(feats)
-    return wavs, feats, torch.tensor(targets).long()
+    target_tensor = torch.tensor(targets).long()
+    feat_len_tensor = torch.tensor(feat_lengths).long()
+    if audio_paths:
+        return wavs, feats, target_tensor, audio_paths, feat_len_tensor
+    return wavs, feats, target_tensor
 
 class DataClass:
     def __init__(
@@ -178,6 +199,7 @@ class DataClass:
         val_path, 
         test_path, 
         max_len=64600,
+        eval_return_full=False,
     ) -> None:
         super().__init__()
 
@@ -185,6 +207,7 @@ class DataClass:
         self.val_path = val_path
         self.test_path = test_path
         self.max_len = max_len
+        self.eval_return_full = bool(eval_return_full)
 
         # 初始化数据集（传入正确的路径）
         self.train = ASVSppof2019(
@@ -199,14 +222,16 @@ class DataClass:
             self.val_path[1], 
             self.val_path[2], 
             self.max_len, 
-            is_train=False  # 验证集设为False
+            is_train=False,  # 验证集设为False
+            eval_return_full=self.eval_return_full,
         )
         self.test = ASVSppof2019(
             self.test_path[0], 
             self.test_path[1], 
             self.test_path[2],
             self.max_len,
-            is_train=False
+            is_train=False,
+            eval_return_full=self.eval_return_full,
         )
     
     def __call__(self, mode: str) -> ASVSppof2019:

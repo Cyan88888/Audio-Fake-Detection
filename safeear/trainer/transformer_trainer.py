@@ -22,12 +22,15 @@ from ..utils.tdcf_metrics import compute_min_tdcf_from_cm_bonafide_score, load_a
 
 
 def _get_feat_target_batch(batch):
-    """Returns (feat, target, audio_path_or_none)."""
+    """Returns (feat, target, audio_path_or_none, feat_lengths_or_none)."""
+    if len(batch) == 5:
+        _, feat, target, audio_path, feat_lengths = batch
+        return feat, target, audio_path, feat_lengths
     if len(batch) == 4:
         _, feat, target, audio_path = batch
-        return feat, target, audio_path
+        return feat, target, audio_path, None
     _, feat, target = batch
-    return feat, target, None
+    return feat, target, None, None
 
 
 def adjust_learning_rate(optimizer, epoch: int, lr: float, warmup: int, epochs: int):
@@ -70,6 +73,8 @@ class TransformerSpoofTrainer(pl.LightningModule):
         label_smoothing: float = 0.0,
         aug_time_mask_prob: float = 0.0,
         aug_time_mask_max_frames: int = 0,
+        test_tta_num_segments: int = 1,
+        test_tta_segment_frames: int = 0,
         warmup_epochs_ratio: float = 0.1,
         weight_decay: float = 1e-4,
         **kwargs: Any,
@@ -93,6 +98,8 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.label_smoothing = float(label_smoothing)
         self.aug_time_mask_prob = float(aug_time_mask_prob)
         self.aug_time_mask_max_frames = int(aug_time_mask_max_frames)
+        self.test_tta_num_segments = int(test_tta_num_segments)
+        self.test_tta_segment_frames = int(test_tta_segment_frames)
         self.warmup_epochs_ratio = warmup_epochs_ratio
         self.weight_decay = weight_decay
         self._asv_scores = None
@@ -137,7 +144,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
         return out
 
     def forward(self, batch, is_train: bool = True):
-        feat, target, audio_path = _get_feat_target_batch(batch)
+        feat, target, audio_path, _ = _get_feat_target_batch(batch)
         feat = feat.to(memory_format=torch.contiguous_format).float()
         if is_train:
             feat = self._apply_time_mask(feat)
@@ -149,6 +156,42 @@ class TransformerSpoofTrainer(pl.LightningModule):
         with torch.no_grad():
             prob_bonafide = torch.softmax(logits, dim=-1)[:, 0]
         return audio_path, torch.tensor(0.0, device=feat.device), prob_bonafide, target
+
+    def _infer_tta_segment_frames(self) -> int:
+        if self.test_tta_segment_frames > 0:
+            return self.test_tta_segment_frames
+        max_len = int(getattr(self.hparams, "max_len", 64600))
+        return max(1, max_len // 320)
+
+    def _tta_predict(self, feat: torch.Tensor, feat_lengths: Optional[torch.Tensor]) -> torch.Tensor:
+        """TTA over multiple temporal segments; returns P(bonafide) per sample."""
+        num_segments = max(1, self.test_tta_num_segments)
+        seg_frames = self._infer_tta_segment_frames()
+        probs = []
+        bsz = feat.shape[0]
+        for i in range(bsz):
+            valid_t = int(feat.shape[-1])
+            if feat_lengths is not None:
+                valid_t = int(feat_lengths[i].item())
+            valid_t = max(1, valid_t)
+            cur = feat[i : i + 1, :, :valid_t]
+            cur_t = cur.shape[-1]
+            if cur_t <= seg_frames:
+                segments = cur
+            else:
+                starts = torch.linspace(
+                    0,
+                    cur_t - seg_frames,
+                    steps=num_segments,
+                    device=feat.device,
+                ).round().long().tolist()
+                starts = list(dict.fromkeys(starts))
+                seg_list = [cur[0, :, s : s + seg_frames] for s in starts]
+                segments = torch.stack(seg_list, dim=0)
+            logits_seg, _ = self.detect_model(segments)
+            prob_seg = torch.softmax(logits_seg, dim=-1)[:, 0]
+            probs.append(prob_seg.mean())
+        return torch.stack(probs, dim=0)
 
     def training_step(self, batch, batch_idx):
         loss, _, _ = self(batch, is_train=True)
@@ -164,7 +207,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        feat, target, _ = _get_feat_target_batch(batch)
+        feat, target, _, _ = _get_feat_target_batch(batch)
         feat = feat.to(memory_format=torch.contiguous_format).float()
         target = target.long()
         with torch.no_grad():
@@ -261,13 +304,20 @@ class TransformerSpoofTrainer(pl.LightningModule):
         adjust_learning_rate(opt, self.current_epoch, self.lr, warmup, max_ep)
 
     def test_step(self, batch, batch_idx):
-        feat, target, audio_path = _get_feat_target_batch(batch)
+        feat, target, audio_path, feat_lengths = _get_feat_target_batch(batch)
         feat = feat.to(memory_format=torch.contiguous_format).float()
         target = target.long()
+        if feat_lengths is not None:
+            feat_lengths = feat_lengths.to(feat.device)
         with torch.no_grad():
-            logits, _ = self.detect_model(feat)
-            prob_bonafide = torch.softmax(logits, dim=-1)[:, 0]
-            test_loss = F.cross_entropy(logits, target)
+            prob_bonafide = self._tta_predict(feat, feat_lengths)
+            eps = 1e-6
+            prob_bonafide = torch.clamp(prob_bonafide, eps, 1.0 - eps)
+            logits_for_loss = torch.stack(
+                [torch.log(prob_bonafide), torch.log(1.0 - prob_bonafide)],
+                dim=-1,
+            )
+            test_loss = F.cross_entropy(logits_for_loss, target)
         self.eval_index_loader.append(target)
         self.eval_score_loader.append(prob_bonafide)
         self.eval_loss_loader.append(test_loss.detach())
@@ -328,7 +378,11 @@ class TransformerSpoofTrainer(pl.LightningModule):
             meta_path = os.path.join(self.save_score_path, "test_cm_meta.json")
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(
-                    {"threshold_bonafide": float(self.threshold_fixed_bonafide)},
+                    {
+                        "threshold_bonafide": float(self.threshold_fixed_bonafide),
+                        "test_tta_num_segments": int(self.test_tta_num_segments),
+                        "test_tta_segment_frames": int(self._infer_tta_segment_frames()),
+                    },
                     f,
                     indent=2,
                 )

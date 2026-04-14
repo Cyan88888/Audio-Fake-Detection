@@ -1,10 +1,11 @@
-"""
-WavLM frame features for inference, aligned with training crop length.
 
-Uses Hugging Face ``transformers`` WavLM. Time axis is linearly interpolated to
-``T* = max_len // 320`` so audio--feature alignment in ``asvspoof19.py`` (which
-assumes ~20 ms / 320-sample frames at 16 kHz) stays consistent without changing
-the dataset loader (strategy A from project plan).
+"""
+WavLM frame features for inference.
+
+Default mode keeps compatibility with training crop length:
+``T* = max_len // 320``.
+Optional preserve-length mode keeps per-utterance time resolution:
+``T* = len(wav) // 320``.
 """
 from __future__ import annotations
 
@@ -51,14 +52,16 @@ class WavLMFeaturizer:
         self,
         wav_1d: torch.Tensor,
         max_len: int = 64600,
+        preserve_length: bool = False,
     ) -> torch.Tensor:
         """Returns feats (1, hidden_dim, T*) with T* = max_len // SAMPLES_PER_FRAME."""
         if wav_1d.dim() != 1:
             wav_1d = wav_1d.reshape(-1)
-        if wav_1d.numel() > max_len:
-            wav_1d = wav_1d[:max_len]
-        elif wav_1d.numel() < max_len:
-            wav_1d = F.pad(wav_1d, (0, max_len - wav_1d.numel()))
+        if not preserve_length:
+            if wav_1d.numel() > max_len:
+                wav_1d = wav_1d[:max_len]
+            elif wav_1d.numel() < max_len:
+                wav_1d = F.pad(wav_1d, (0, max_len - wav_1d.numel()))
 
         wav_np = wav_1d.float().cpu().numpy()
         inputs = self.processor(
@@ -69,7 +72,7 @@ class WavLMFeaturizer:
         )
         input_values = inputs.input_values.to(self.device)
 
-        target_t = max(1, max_len // SAMPLES_PER_FRAME)
+        target_t = max(1, wav_1d.numel() // SAMPLES_PER_FRAME) if preserve_length else max(1, max_len // SAMPLES_PER_FRAME)
 
         with torch.no_grad():
             out = self.model(input_values, output_hidden_states=False)
@@ -81,9 +84,9 @@ class WavLMFeaturizer:
             feat = F.interpolate(feat, size=target_t, mode="linear", align_corners=False)
         return feat
 
-    def file_to_feat(self, path: str, max_len: int = 64600) -> torch.Tensor:
+    def file_to_feat(self, path: str, max_len: int = 64600, preserve_length: bool = False) -> torch.Tensor:
         wav = self.load_wav_mono(path)
-        return self.wav_tensor_to_feat(wav, max_len=max_len)
+        return self.wav_tensor_to_feat(wav, max_len=max_len, preserve_length=preserve_length)
 
     def feat_to_dump_layout(self, feat: torch.Tensor) -> torch.Tensor:
         """(1, C, T) -> (T, C) for offline .npy compatible with ASVSppof2019 loader."""

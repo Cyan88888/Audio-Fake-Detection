@@ -42,14 +42,22 @@ def dump_wavlm_to_dir(
     model_name: str,
     device: torch.device,
     max_len: int = 64600,
+    preserve_length: bool = False,
+    skip_exists: bool = False,
 ):
     fe = WavLMFeaturizer(model_name=model_name, device=device)
     audio_files = sorted(audio_dir.glob("**/*.flac"))
     for audio_file in tqdm.tqdm(audio_files, desc="WavLM dump"):
         rel = audio_file.relative_to(audio_dir).with_suffix(".npy")
         out_path = save_dir / rel
+        if skip_exists and out_path.exists():
+            continue
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        feat = fe.file_to_feat(str(audio_file), max_len=max_len)
+        feat = fe.file_to_feat(
+            str(audio_file),
+            max_len=max_len,
+            preserve_length=preserve_length,
+        )
         row = fe.feat_to_dump_layout(feat)
         np.save(out_path, row.cpu().numpy().astype("float32"))
     logger.info("finished successfully")
@@ -67,6 +75,16 @@ def main():
         help="Hugging Face model id for WavLM",
     )
     parser.add_argument("--max_len", type=int, default=64600, help="Waveform crop length (samples)")
+    parser.add_argument(
+        "--preserve_length",
+        action="store_true",
+        help="Keep variable-length time axis instead of fixed max_len cropping/padding.",
+    )
+    parser.add_argument(
+        "--skip_exists",
+        action="store_true",
+        help="Skip output files that already exist (resume friendly).",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -77,6 +95,8 @@ def main():
         args.model_name,
         device,
         max_len=args.max_len,
+        preserve_length=args.preserve_length,
+        skip_exists=args.skip_exists,
     )
 
 

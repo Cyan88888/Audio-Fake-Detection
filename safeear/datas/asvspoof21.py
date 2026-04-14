@@ -39,7 +39,16 @@ def load_feature(feat_path):
 
 
 class ASVSppof2021(Dataset):
-    def __init__(self, tsv_path, protocol_path, feat_dir, max_len=64600, is_train=True, codec=True):
+    def __init__(
+        self,
+        tsv_path,
+        protocol_path,
+        feat_dir,
+        max_len=64600,
+        is_train=True,
+        codec=True,
+        eval_return_full=False,
+    ):
         """
         Initialize the dataset with paths and parameters.
 
@@ -58,6 +67,7 @@ class ASVSppof2021(Dataset):
         self.max_len = max_len
         self.is_train = is_train
         self.codec = codec
+        self.eval_return_full = bool(eval_return_full)
         self.root = Path(root)
 
         with open(protocol_path) as file:
@@ -123,6 +133,9 @@ class ASVSppof2021(Dataset):
             else:
                 return audio[:, st:ed], avg_hubert_feat[:, feat_st:feat_st + feat_duration], target
         
+        if not self.is_train and self.eval_return_full:
+            return audio, avg_hubert_feat, target, str(audio_path)
+
         if self.is_train == False and audio.shape[1] > self.max_len:
             st = 0
             feat_st = 0
@@ -173,19 +186,27 @@ def collate_fn(batch):
     wavs = []
     feats = []
     targets = []
+    audio_paths = []
+    feat_lengths = []
     for item in batch:
         # 兼容验证/测试集返回值（多了audio_path）
         if len(item) == 4:
-            wav, feat, target, _ = item
+            wav, feat, target, audio_path = item
+            audio_paths.append(audio_path)
         else:
             wav, feat, target = item
         wavs.append(wav)
         feats.append(feat)
         targets.append(target)
+        feat_lengths.append(feat.shape[1])
 
     wavs = pad_sequence(wavs)  # Pad wavs to the same length
     feats = pad_sequence(feats)  # Pad feats to (batch_size, feature_dim, max_length)
-    return wavs, feats, torch.tensor(targets).long()  # Convert targets to tensor
+    target_tensor = torch.tensor(targets).long()
+    feat_len_tensor = torch.tensor(feat_lengths).long()
+    if audio_paths:
+        return wavs, feats, target_tensor, audio_paths, feat_len_tensor
+    return wavs, feats, target_tensor
 
 class DataClass:
     def __init__(
@@ -194,6 +215,7 @@ class DataClass:
         val_path, 
         test_path, 
         max_len=64600,
+        eval_return_full=False,
     ) -> None:
 
         super().__init__()
@@ -202,6 +224,7 @@ class DataClass:
         self.val_path = val_path
         self.test_path = test_path
         self.max_len = max_len
+        self.eval_return_full = bool(eval_return_full)
 
         # Get different datasets
         self.train = ASVSppof2021(
@@ -217,14 +240,17 @@ class DataClass:
             self.val_path[2], 
             self.max_len, 
             is_train=False,
-            codec=False
+            codec=False,
+            eval_return_full=self.eval_return_full,
         )
         self.test = ASVSppof2021(
             self.test_path[0], 
             self.test_path[1], 
             self.test_path[2],
+            self.max_len,
             is_train=False,
-            codec=False
+            codec=False,
+            eval_return_full=self.eval_return_full,
         )
     def __call__(self, mode: str) -> ASVSppof2021:
         """Get dataset for a given mode.
