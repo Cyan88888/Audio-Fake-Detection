@@ -2,6 +2,7 @@ import glob
 import random
 import os
 from pathlib import Path
+from typing import Optional
 import torch
 import torchaudio
 from pytorch_lightning import LightningDataModule
@@ -35,6 +36,10 @@ class ASVSppof2019(Dataset):
         max_len=64600,
         is_train=True,
         eval_return_full=False,
+        online_train_feature_extraction=False,
+        wavlm_model_name="microsoft/wavlm-base",
+        online_codec_aug_prob=0.0,
+        online_codec_formats=None,
     ):
         super().__init__()
         # 读取TSV文件（仅获取文件名，不使用TSV中的root）
@@ -48,6 +53,14 @@ class ASVSppof2019(Dataset):
         self.max_len = max_len 
         self.is_train = is_train
         self.eval_return_full = bool(eval_return_full)
+        self.online_train_feature_extraction = bool(online_train_feature_extraction)
+        self.wavlm_model_name = wavlm_model_name
+        self.online_codec_aug_prob = float(online_codec_aug_prob)
+        if online_codec_formats is None:
+            online_codec_formats = ["ogg"]
+        self.online_codec_formats = list(online_codec_formats)
+        self._online_codec_formats_active = list(self.online_codec_formats)
+        self._online_featurizer: Optional[object] = None
         
         # 核心修复：根据数据集类型选择正确的音频子目录
         if "train" in str(feat_dir) or "train" in str(tsv_path):
@@ -86,6 +99,39 @@ class ASVSppof2019(Dataset):
             for meta_info in meta_infos
         }
 
+    def _get_online_featurizer(self):
+        if self._online_featurizer is None:
+            # Keep online extraction on CPU to avoid CUDA in dataloader workers.
+            from inference.wavlm_featurizer import WavLMFeaturizer
+
+            self._online_featurizer = WavLMFeaturizer(
+                model_name=self.wavlm_model_name,
+                device=torch.device("cpu"),
+            )
+        return self._online_featurizer
+
+    def _maybe_apply_codec(self, audio: torch.Tensor) -> torch.Tensor:
+        if self.online_codec_aug_prob <= 0.0:
+            return audio
+        if random.random() >= self.online_codec_aug_prob:
+            return audio
+        if not self._online_codec_formats_active:
+            return audio
+
+        codec = random.choice(self._online_codec_formats_active)
+        try:
+            if codec == "gsm":
+                x = torchaudio.functional.resample(audio, self.sr, 8000)
+                x = torchaudio.functional.apply_codec(x, 8000, codec)
+                return torchaudio.functional.resample(x, 8000, self.sr)
+            return torchaudio.functional.apply_codec(audio, self.sr, codec)
+        except Exception:
+            # Disable unsupported codec after first failure to avoid repeated stderr spam.
+            self._online_codec_formats_active = [
+                c for c in self._online_codec_formats_active if c != codec
+            ]
+            return audio
+
     def __len__(self):
         return len(self.lines)
 
@@ -99,16 +145,41 @@ class ASVSppof2019(Dataset):
         # 拼接音频路径（使用初始化时确定的子目录）
         audio_path = self.audio_root / self.audio_subdir / audio_filename
         
-        # 加载音频和特征（增加异常处理）
+        # 加载音频（增加异常处理）
         try:
             audio = torchaudio.load(str(audio_path))[0]
-            avg_hubert_feat = torch.tensor(load_feature(str(feat_path)))
         except Exception as e:
-            raise RuntimeError(f"加载文件失败！\n音频路径：{audio_path}\n特征路径：{feat_path}\n错误：{e}")
+            raise RuntimeError(f"加载文件失败！\n音频路径：{audio_path}\n错误：{e}")
         
         # 获取标签
         waveform_info = self.mapping[audio_filename.split('.')[0]]
         target = 1 if waveform_info == 'spoof' else 0 
+
+        # 在线训练特征提取：训练集使用音频增强 + WavLM实时提取
+        if self.is_train and self.online_train_feature_extraction:
+            audio_aug = self._maybe_apply_codec(audio)
+            if audio_aug.shape[1] > self.max_len:
+                st = random.randint(0, audio_aug.shape[1] - self.max_len - 1)
+                audio_aug = audio_aug[:, st : st + self.max_len]
+            elif audio_aug.shape[1] < self.max_len:
+                audio_aug = torch.nn.functional.pad(
+                    audio_aug, (0, self.max_len - audio_aug.shape[1]), "constant", 0
+                )
+
+            featurizer = self._get_online_featurizer()
+            feat = featurizer.wav_tensor_to_feat(
+                audio_aug.squeeze(0),
+                max_len=self.max_len,
+                preserve_length=False,
+            )
+            avg_hubert_feat = feat.squeeze(0).to(torch.float32)  # [C, T]
+            return audio_aug, avg_hubert_feat, target
+
+        # 离线特征路径（验证/测试，及默认训练流程）
+        try:
+            avg_hubert_feat = torch.tensor(load_feature(str(feat_path)))
+        except Exception as e:
+            raise RuntimeError(f"加载特征失败！\n特征路径：{feat_path}\n错误：{e}")
         
         # 调整特征维度
         if avg_hubert_feat.ndim == 3:
@@ -200,6 +271,10 @@ class DataClass:
         test_path, 
         max_len=64600,
         eval_return_full=False,
+        online_train_feature_extraction=False,
+        wavlm_model_name="microsoft/wavlm-base",
+        online_codec_aug_prob=0.0,
+        online_codec_formats=None,
     ) -> None:
         super().__init__()
 
@@ -208,6 +283,10 @@ class DataClass:
         self.test_path = test_path
         self.max_len = max_len
         self.eval_return_full = bool(eval_return_full)
+        self.online_train_feature_extraction = bool(online_train_feature_extraction)
+        self.wavlm_model_name = wavlm_model_name
+        self.online_codec_aug_prob = float(online_codec_aug_prob)
+        self.online_codec_formats = online_codec_formats
 
         # 初始化数据集（传入正确的路径）
         self.train = ASVSppof2019(
@@ -215,7 +294,11 @@ class DataClass:
             self.train_path[1], 
             self.train_path[2], 
             self.max_len, 
-            is_train=True
+            is_train=True,
+            online_train_feature_extraction=self.online_train_feature_extraction,
+            wavlm_model_name=self.wavlm_model_name,
+            online_codec_aug_prob=self.online_codec_aug_prob,
+            online_codec_formats=self.online_codec_formats,
         )
         self.val = ASVSppof2019(
             self.val_path[0], 
