@@ -73,6 +73,10 @@ class TransformerSpoofTrainer(pl.LightningModule):
         label_smoothing: float = 0.0,
         aug_time_mask_prob: float = 0.0,
         aug_time_mask_max_frames: int = 0,
+        aug_chunk_shuffle_prob: float = 0.0,
+        aug_chunk_size: int = 0,
+        aug_feat_dropout_prob: float = 0.0,
+        feat_norm_mode: str = "none",
         test_tta_num_segments: int = 1,
         test_tta_segment_frames: int = 0,
         warmup_epochs_ratio: float = 0.1,
@@ -98,6 +102,10 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.label_smoothing = float(label_smoothing)
         self.aug_time_mask_prob = float(aug_time_mask_prob)
         self.aug_time_mask_max_frames = int(aug_time_mask_max_frames)
+        self.aug_chunk_shuffle_prob = float(aug_chunk_shuffle_prob)
+        self.aug_chunk_size = int(aug_chunk_size)
+        self.aug_feat_dropout_prob = float(aug_feat_dropout_prob)
+        self.feat_norm_mode = str(feat_norm_mode).lower()
         self.test_tta_num_segments = int(test_tta_num_segments)
         self.test_tta_segment_frames = int(test_tta_segment_frames)
         self.warmup_epochs_ratio = warmup_epochs_ratio
@@ -117,6 +125,8 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.eval_score_loader: List[torch.Tensor] = []
         self.eval_loss_loader: List[torch.Tensor] = []
         self.eval_filename_loader: List[Any] = []
+        if self.feat_norm_mode not in {"none", "utt_cmvn"}:
+            raise ValueError(f"Unsupported feat_norm_mode: {self.feat_norm_mode}")
 
     def _apply_time_mask(self, feat: torch.Tensor) -> torch.Tensor:
         """Apply simple per-utterance time masking on (B, C, T) features."""
@@ -143,11 +153,53 @@ class TransformerSpoofTrainer(pl.LightningModule):
             out[b, :, s : s + w] = 0.0
         return out
 
+    def _normalize_feat(self, feat: torch.Tensor) -> torch.Tensor:
+        if self.feat_norm_mode == "none":
+            return feat
+        # Per-utterance CMVN over time axis for each channel.
+        mean = feat.mean(dim=-1, keepdim=True)
+        std = feat.std(dim=-1, keepdim=True).clamp_min(1e-5)
+        return (feat - mean) / std
+
+    def _apply_chunk_shuffle(self, feat: torch.Tensor) -> torch.Tensor:
+        """Shuffle local frame order within fixed-size chunks (train only)."""
+        if self.aug_chunk_shuffle_prob <= 0.0 or self.aug_chunk_size <= 1:
+            return feat
+        if feat.dim() != 3:
+            return feat
+        bsz, _, t = feat.shape
+        if t <= 1:
+            return feat
+
+        out = feat.clone()
+        apply_mask = torch.rand(bsz, device=feat.device) < self.aug_chunk_shuffle_prob
+        apply_ids = torch.nonzero(apply_mask, as_tuple=False).view(-1)
+        for b in apply_ids.tolist():
+            for s in range(0, t, self.aug_chunk_size):
+                e = min(s + self.aug_chunk_size, t)
+                if e - s <= 1:
+                    continue
+                perm = torch.randperm(e - s, device=feat.device)
+                out[b, :, s:e] = out[b, :, s:e][:, perm]
+        return out
+
+    def _apply_feature_dropout(self, feat: torch.Tensor) -> torch.Tensor:
+        if self.aug_feat_dropout_prob <= 0.0:
+            return feat
+        return F.dropout(feat, p=self.aug_feat_dropout_prob, training=True)
+
+    def _prepare_feat(self, feat: torch.Tensor, is_train: bool) -> torch.Tensor:
+        feat = feat.to(memory_format=torch.contiguous_format).float()
+        feat = self._normalize_feat(feat)
+        if is_train:
+            feat = self._apply_chunk_shuffle(feat)
+            feat = self._apply_time_mask(feat)
+            feat = self._apply_feature_dropout(feat)
+        return feat
+
     def forward(self, batch, is_train: bool = True):
         feat, target, audio_path, _ = _get_feat_target_batch(batch)
-        feat = feat.to(memory_format=torch.contiguous_format).float()
-        if is_train:
-            feat = self._apply_time_mask(feat)
+        feat = self._prepare_feat(feat, is_train=is_train)
         target = target.long()
         logits, _ = self.detect_model(feat)
         if is_train:
@@ -208,7 +260,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         feat, target, _, _ = _get_feat_target_batch(batch)
-        feat = feat.to(memory_format=torch.contiguous_format).float()
+        feat = self._prepare_feat(feat, is_train=False)
         target = target.long()
         with torch.no_grad():
             logits, _ = self.detect_model(feat)
@@ -268,6 +320,10 @@ class TransformerSpoofTrainer(pl.LightningModule):
                 "val_precision": metrics_05["precision"],
                 "val_recall": metrics_05["recall"],
                 "val_f1": metrics_05["f1"],
+                "val_PAR": metrics_05["par"],
+                "val_PRR": metrics_05["prr"],
+                "val_FAR": metrics_05["far"],
+                "val_FRR": metrics_05["frr"],
                 "val_roc_auc": metrics_05["roc_auc"],
                 "val_pr_ap": metrics_05["pr_ap"],
                 "val_minDCF": min_dcf,
@@ -305,7 +361,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         feat, target, audio_path, feat_lengths = _get_feat_target_batch(batch)
-        feat = feat.to(memory_format=torch.contiguous_format).float()
+        feat = self._prepare_feat(feat, is_train=False)
         target = target.long()
         if feat_lengths is not None:
             feat_lengths = feat_lengths.to(feat.device)
@@ -396,6 +452,10 @@ class TransformerSpoofTrainer(pl.LightningModule):
                 "test_precision": metrics_05["precision"],
                 "test_recall": metrics_05["recall"],
                 "test_f1": metrics_05["f1"],
+                "test_PAR": metrics_05["par"],
+                "test_PRR": metrics_05["prr"],
+                "test_FAR": metrics_05["far"],
+                "test_FRR": metrics_05["frr"],
                 "test_roc_auc": metrics_05["roc_auc"],
                 "test_pr_ap": metrics_05["pr_ap"],
                 "test_minDCF": min_dcf,

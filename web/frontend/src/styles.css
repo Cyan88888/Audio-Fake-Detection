@@ -1,0 +1,125 @@
+body {
+  margin: 0;
+  background: #0b1220;
+  color: #e2e8f0;
+  font-family: Inter, system-ui, Arial, sans-serif;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 16px 48px;
+}
+
+h1 {
+  margin: 0 0 4px;
+}
+
+.muted {
+  color: #94a3b8;
+  margin: 0 0 16px;
+}
+
+.card {
+  background: #111827;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.loginCard {
+  max-width: 520px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #475569;
+  cursor: not-allowed;
+}
+
+input[type="file"] {
+  display: block;
+  margin-top: 8px;
+}
+
+input[type="range"] {
+  width: 260px;
+  display: block;
+  margin: 6px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  border-bottom: 1px solid #334155;
+  padding: 8px;
+  text-align: left;
+}
+
+.json {
+  font-size: 12px;
+  background: #020617;
+  border: 1px solid #334155;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 240px;
+}
+
+.plot {
+  width: 100%;
+  background: #020617;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.hint {
+  margin-left: 8px;
+  color: #93c5fd;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.spoofBadge {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.bonaBadge {
+  background: #14532d;
+  color: #bbf7d0;
+}

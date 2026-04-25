@@ -138,7 +138,8 @@ class ASVSppof2021(Dataset):
 
         if self.is_train == False and audio.shape[1] > self.max_len:
             st = 0
-            feat_st = 0
+            # Keep feature/audio crop aligned (320-sample hop per frame).
+            feat_st = st // 320
             ed = st + self.max_len
             if avg_hubert_feat[:, feat_st:feat_st + feat_duration].shape[1] < feat_duration:
                 avg_hubert_feat = avg_hubert_feat[:, feat_st:feat_st + feat_duration]

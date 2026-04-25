@@ -36,6 +36,7 @@ class ASVSppof2019(Dataset):
         max_len=64600,
         is_train=True,
         eval_return_full=False,
+        eval_crop_mode="head",
         online_train_feature_extraction=False,
         wavlm_model_name="microsoft/wavlm-base",
         online_codec_aug_prob=0.0,
@@ -53,6 +54,9 @@ class ASVSppof2019(Dataset):
         self.max_len = max_len 
         self.is_train = is_train
         self.eval_return_full = bool(eval_return_full)
+        self.eval_crop_mode = str(eval_crop_mode).lower()
+        if self.eval_crop_mode not in {"head", "center"}:
+            raise ValueError(f"Unsupported eval_crop_mode: {self.eval_crop_mode}")
         self.online_train_feature_extraction = bool(online_train_feature_extraction)
         self.wavlm_model_name = wavlm_model_name
         self.online_codec_aug_prob = float(online_codec_aug_prob)
@@ -204,10 +208,14 @@ class ASVSppof2019(Dataset):
         if not self.is_train and self.eval_return_full:
             return audio, avg_hubert_feat, target, str(audio_path)
 
-        # 验证/测试集：固定裁剪
+        # 验证/测试集：确定性裁剪（head / center）
         if not self.is_train and audio.shape[1] > self.max_len:
-            st = 0
-            feat_st = 0
+            if self.eval_crop_mode == "center":
+                st = (audio.shape[1] - self.max_len) // 2
+            else:
+                st = 0
+            # Keep feature/audio crop aligned (320-sample hop per frame).
+            feat_st = st // 320
             ed = st + self.max_len
             if avg_hubert_feat[:, feat_st:feat_st + feat_duration].shape[1] < feat_duration:
                 avg_hubert_feat = avg_hubert_feat[:, feat_st:feat_st + feat_duration]
@@ -271,6 +279,7 @@ class DataClass:
         test_path, 
         max_len=64600,
         eval_return_full=False,
+        eval_crop_mode="head",
         online_train_feature_extraction=False,
         wavlm_model_name="microsoft/wavlm-base",
         online_codec_aug_prob=0.0,
@@ -283,6 +292,7 @@ class DataClass:
         self.test_path = test_path
         self.max_len = max_len
         self.eval_return_full = bool(eval_return_full)
+        self.eval_crop_mode = str(eval_crop_mode).lower()
         self.online_train_feature_extraction = bool(online_train_feature_extraction)
         self.wavlm_model_name = wavlm_model_name
         self.online_codec_aug_prob = float(online_codec_aug_prob)
@@ -307,6 +317,7 @@ class DataClass:
             self.max_len, 
             is_train=False,  # 验证集设为False
             eval_return_full=self.eval_return_full,
+            eval_crop_mode=self.eval_crop_mode,
         )
         self.test = ASVSppof2019(
             self.test_path[0], 
@@ -315,6 +326,7 @@ class DataClass:
             self.max_len,
             is_train=False,
             eval_return_full=self.eval_return_full,
+            eval_crop_mode=self.eval_crop_mode,
         )
     
     def __call__(self, mode: str) -> ASVSppof2019:

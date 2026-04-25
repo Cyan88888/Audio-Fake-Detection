@@ -94,11 +94,31 @@ def compute_binary_classification_metrics(
     )
     ap = float(average_precision_score(y_true, y_score_spoof, pos_label=pos_label))
 
+    # PAR (Presentation Attack Pass Rate): spoof accepted as bonafide.
+    # PRR (Presentation Real Pass Rate): bonafide accepted as bonafide.
+    # FAR/FRR (biometric naming):
+    # - FAR: attack/impostor accepted as genuine == PAR
+    # - FRR: genuine rejected as attack == 1 - PRR
+    spoof_mask = y_true == 1
+    bona_mask = y_true == 0
+    spoof_total = int(np.sum(spoof_mask))
+    bona_total = int(np.sum(bona_mask))
+    spoof_pass = int(np.sum((y_pred == 0) & spoof_mask))
+    bona_pass = int(np.sum((y_pred == 0) & bona_mask))
+    par = float(spoof_pass / spoof_total) if spoof_total > 0 else 0.0
+    prr = float(bona_pass / bona_total) if bona_total > 0 else 0.0
+    far = par
+    frr = float(1.0 - prr)
+
     return {
         "acc": acc,
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
+        "par": par,
+        "prr": prr,
+        "far": far,
+        "frr": frr,
         "roc_auc": roc_auc,
         "pr_ap": ap,
         "roc_curve": (fpr.astype(np.float64), tpr.astype(np.float64), roc_thresholds.astype(np.float64)),
