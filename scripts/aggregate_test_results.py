@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -16,6 +17,69 @@ from typing import Dict, List, Tuple
 
 def collect_result_files(exps_dir: Path) -> List[Path]:
     return sorted(p for p in exps_dir.glob("**/test_results.json") if p.is_file())
+
+
+def _extract_key_in_block(text: str, block: str, key: str) -> str:
+    """
+    Extract `key` under a top-level YAML `block` by simple indentation scan.
+    Falls back to empty string when missing.
+    """
+    m = re.search(rf"(?m)^{re.escape(block)}:\s*$", text)
+    if not m:
+        return ""
+    tail = text[m.end() :]
+    for line in tail.splitlines():
+        if line and not line.startswith(" ") and not line.startswith("\t"):
+            break
+        s = line.strip()
+        if s.startswith(f"{key}:"):
+            return s.split(":", 1)[1].strip().strip("'\"")
+    return ""
+
+
+def parse_experiment_config(exp_dir: Path) -> Dict[str, object]:
+    cfg_path = exp_dir / "config.yaml"
+    if not cfg_path.is_file():
+        return {"config_file": ""}
+    text = cfg_path.read_text(encoding="utf-8", errors="ignore")
+    row: Dict[str, object] = {"config_file": str(cfg_path)}
+
+    # experiment id
+    row["cfg_exp_name"] = _extract_key_in_block(text, "exp", "name")
+    row["cfg_exp_dir"] = _extract_key_in_block(text, "exp", "dir")
+
+    # model structure
+    row["cfg_pooling"] = _extract_key_in_block(text, "detect_model", "pooling")
+    row["cfg_positional_embedding"] = _extract_key_in_block(text, "detect_model", "positional_embedding")
+    row["cfg_num_layers"] = _extract_key_in_block(text, "detect_model", "num_layers")
+    row["cfg_num_heads"] = _extract_key_in_block(text, "detect_model", "num_heads")
+    row["cfg_dropout_rate"] = _extract_key_in_block(text, "detect_model", "dropout_rate")
+    row["cfg_attention_dropout"] = _extract_key_in_block(text, "detect_model", "attention_dropout")
+    row["cfg_stochastic_depth_rate"] = _extract_key_in_block(text, "detect_model", "stochastic_depth_rate")
+    row["cfg_sequence_length"] = _extract_key_in_block(text, "detect_model", "sequence_length")
+    row["cfg_mlp_ratio"] = _extract_key_in_block(text, "detect_model", "mlp_ratio")
+
+    # training / regularization
+    row["cfg_lr"] = _extract_key_in_block(text, "system", "lr")
+    row["cfg_weight_decay"] = _extract_key_in_block(text, "system", "weight_decay")
+    row["cfg_warmup_epochs_ratio"] = _extract_key_in_block(text, "system", "warmup_epochs_ratio")
+    row["cfg_feat_norm_mode"] = _extract_key_in_block(text, "system", "feat_norm_mode")
+    row["cfg_label_smoothing"] = _extract_key_in_block(text, "system", "label_smoothing")
+    row["cfg_aug_time_mask_prob"] = _extract_key_in_block(text, "system", "aug_time_mask_prob")
+    row["cfg_aug_time_mask_max_frames"] = _extract_key_in_block(text, "system", "aug_time_mask_max_frames")
+    row["cfg_aug_chunk_shuffle_prob"] = _extract_key_in_block(text, "system", "aug_chunk_shuffle_prob")
+    row["cfg_aug_chunk_size"] = _extract_key_in_block(text, "system", "aug_chunk_size")
+    row["cfg_aug_feat_dropout_prob"] = _extract_key_in_block(text, "system", "aug_feat_dropout_prob")
+    row["cfg_threshold_mode"] = _extract_key_in_block(text, "system", "threshold_mode")
+    row["cfg_threshold_fixed_bonafide"] = _extract_key_in_block(text, "system", "threshold_fixed_bonafide")
+
+    # runtime
+    row["cfg_batch_size"] = _extract_key_in_block(text, "datamodule", "batch_size")
+    row["cfg_max_epochs"] = _extract_key_in_block(text, "trainer", "max_epochs")
+    row["cfg_gradient_clip_val"] = _extract_key_in_block(text, "trainer", "gradient_clip_val")
+    row["cfg_eval_crop_mode"] = _extract_key_in_block(text, "DataClass_dict", "eval_crop_mode")
+    row["cfg_max_len"] = _extract_key_in_block(text, "DataClass_dict", "max_len")
+    return row
 
 
 def flatten_result(fp: Path) -> Dict[str, object]:
@@ -29,6 +93,7 @@ def flatten_result(fp: Path) -> Dict[str, object]:
         "result_file": str(fp),
         "ckpt_path": data.get("ckpt_path", ""),
     }
+    row.update(parse_experiment_config(exp_dir))
     for k, v in val.items():
         row[k] = v
     for k, v in test.items():
@@ -37,7 +102,31 @@ def flatten_result(fp: Path) -> Dict[str, object]:
 
 
 def ordered_columns(rows: List[Dict[str, object]]) -> List[str]:
-    base = ["exp_name", "ckpt_path", "test_eer", "test_minDCF", "test_min_tDCF", "test_PAR", "test_PRR", "test_acc", "test_f1"]
+    base = [
+        "exp_name",
+        "cfg_pooling",
+        "cfg_positional_embedding",
+        "cfg_num_layers",
+        "cfg_num_heads",
+        "cfg_lr",
+        "cfg_weight_decay",
+        "cfg_label_smoothing",
+        "cfg_feat_norm_mode",
+        "cfg_aug_time_mask_prob",
+        "cfg_aug_time_mask_max_frames",
+        "cfg_aug_chunk_shuffle_prob",
+        "cfg_aug_feat_dropout_prob",
+        "ckpt_path",
+        "test_eer",
+        "test_minDCF",
+        "test_min_tDCF",
+        "test_FAR",
+        "test_FRR",
+        "test_PAR",
+        "test_PRR",
+        "test_acc",
+        "test_f1",
+    ]
     keys = set()
     for r in rows:
         keys.update(r.keys())
@@ -63,7 +152,18 @@ def fmt(v: object) -> str:
 
 def write_markdown(path: Path, rows: List[Dict[str, object]]) -> None:
     # Compact thesis-facing table with key test metrics.
-    show_cols = ["exp_name", "test_eer", "test_minDCF", "test_min_tDCF", "test_PAR", "test_PRR", "test_acc", "test_f1"]
+    show_cols = [
+        "exp_name",
+        "cfg_pooling",
+        "cfg_label_smoothing",
+        "cfg_aug_time_mask_prob",
+        "cfg_feat_norm_mode",
+        "test_eer",
+        "test_minDCF",
+        "test_min_tDCF",
+        "test_FAR",
+        "test_FRR",
+    ]
     present_cols = [c for c in show_cols if any(c in r for r in rows)]
     path.parent.mkdir(parents=True, exist_ok=True)
     lines: List[str] = []
