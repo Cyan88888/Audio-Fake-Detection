@@ -62,7 +62,7 @@ system:
 
 exp:
   dir: Exps/
-  name: Search_PoolMax_S3_pure
+  name: Search_PoolMax_S3_pure_test1
 
 early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping

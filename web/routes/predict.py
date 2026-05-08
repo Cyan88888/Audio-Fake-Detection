@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 
+from .. import config
 from ..schemas.predict import PredictResponse
 from ..services.auth_service import require_token
 from ..services.audit_service import log_action
@@ -19,21 +20,23 @@ async def predict_one(
     max_len: int = Form(64600),
     actor: str = Depends(require_token),
 ):
+    _ = threshold  # Kept for backward-compatible form input; runtime threshold is fixed by config.
     if not inference_service.is_ready():
         raise HTTPException(status_code=503, detail="Model not loaded.")
+    fixed_threshold = config.get_web_fixed_threshold_spoof()
     raw = await file.read()
     item = inference_service.predict_bytes(
         raw=raw,
         filename=file.filename or "upload.wav",
         max_len=max_len,
-        threshold=threshold,
+        threshold=fixed_threshold,
     )
     job_id = inference_service.new_job_id()
     save_prediction_items(job_id=job_id, items=[item])
     log_action("predict_one", actor, f"job={job_id} file={item['filename']}")
     return PredictResponse(
         job_id=job_id,
-        threshold=threshold,
+        threshold=fixed_threshold,
         model_version=inference_service.model_version,
         items=[item],
     )
@@ -47,6 +50,7 @@ async def predict_batch(
     max_len: int = Form(64600),
     actor: str = Depends(require_token),
 ):
+    _ = threshold  # Kept for backward-compatible form input; runtime threshold is fixed by config.
     if not inference_service.is_ready():
         raise HTTPException(status_code=503, detail="Model not loaded.")
     if not files:
@@ -62,7 +66,7 @@ async def predict_batch(
     job_id = task_service.enqueue_batch(
         bg=background_tasks,
         files=file_payloads,
-        threshold=threshold,
+        threshold=config.get_web_fixed_threshold_spoof(),
         max_len=max_len,
         actor=actor,
     )

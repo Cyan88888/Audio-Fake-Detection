@@ -1,44 +1,18 @@
-import React, { useMemo, useState } from "react";
-
-function WavePlot({ data }) {
-  if (!data?.length) return null;
-  const points = data.slice(0, 200).map((v, i) => `${i},${40 - v * 30}`).join(" ");
-  return (
-    <svg viewBox="0 0 200 80" className="plot">
-      <polyline points={points} fill="none" stroke="#4ade80" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function MelHeatmap({ mel }) {
-  if (!mel?.length || !mel[0]?.length) return null;
-  const rows = mel.length;
-  const cols = mel[0].length;
-  const min = Math.min(...mel.flat());
-  const max = Math.max(...mel.flat());
-  const cellW = 320 / cols;
-  const cellH = 128 / rows;
-  return (
-    <svg viewBox="0 0 320 128" className="plot">
-      {mel.map((row, r) =>
-        row.map((v, c) => {
-          const t = (v - min) / (max - min + 1e-8);
-          const color = `rgb(${Math.floor(t * 255)}, ${Math.floor(t * 160)}, ${Math.floor(t * 80)})`;
-          return <rect key={`${r}-${c}`} x={c * cellW} y={r * cellH} width={cellW + 0.2} height={cellH + 0.2} fill={color} />;
-        })
-      )}
-    </svg>
-  );
-}
+import React, { useMemo, useRef, useState } from "react";
 
 export default function App() {
   const [token] = useState("");
-  const [threshold, setThreshold] = useState(0.5);
   const [files, setFiles] = useState([]);
   const [jobId, setJobId] = useState("");
   const [job, setJob] = useState(null);
   const [results, setResults] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [pageState, setPageState] = useState("upload");
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef(null);
+  const pathname = window.location.pathname;
+  const routePage = pathname === "/loading" ? "loading" : pathname === "/result" ? "result" : "upload";
+  const currentPage = routePage === "upload" ? pageState : routePage;
 
   const authHeader = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : {}),
@@ -57,37 +31,53 @@ export default function App() {
 
   async function submitBatch() {
     if (!files.length) return;
+    setErrorMsg("");
+    setPageState("loading");
     const fd = new FormData();
     for (const f of files) fd.append("files", f);
-    fd.append("threshold", String(threshold));
     fd.append("max_len", "64600");
     const res = await fetch("/api/predict_batch", { method: "POST", headers: authHeader, body: fd });
     const j = await parseApiResponse(res);
     if (!res.ok) {
-      alert(j.detail || "提交失败");
+      setPageState("upload");
+      setErrorMsg(j.detail || "提交失败");
       return;
     }
     setJobId(j.job_id);
     setJob({ status: "pending", done_files: 0, total_files: files.length });
     setResults([]);
-    setSelected(null);
     startAutoPoll(j.job_id);
   }
 
-  async function pollTask() {
-    if (!jobId) return;
-    const res = await fetch(`/api/tasks/${jobId}`, { headers: authHeader });
-    const j = await parseApiResponse(res);
-    if (!res.ok) {
-      alert(j.detail || "查询任务失败");
-      return;
-    }
-    setJob(j);
-    if (j.status === "completed") {
-      const items = j.items || [];
-      setResults(items);
-      setSelected(items[0] ?? null);
-    }
+  function resetToUpload() {
+    setPageState("upload");
+    setJobId("");
+    setJob(null);
+    setResults([]);
+    setErrorMsg("");
+    setFiles([]);
+  }
+
+  function updateFiles(fileList) {
+    const picked = Array.from(fileList || []);
+    setFiles(picked);
+    setErrorMsg("");
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setIsDragOver(false);
+    updateFiles(e.dataTransfer.files);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    setIsDragOver(false);
   }
 
   function startAutoPoll(targetJobId) {
@@ -101,79 +91,147 @@ export default function App() {
         if (j.status === "completed") {
           const items = j.items || [];
           setResults(items);
-          setSelected(items[0] ?? null);
+          setPageState("result");
           clearInterval(timer);
         } else if (j.status === "failed") {
+          setPageState("upload");
+          setErrorMsg(j.error || "检测失败");
           clearInterval(timer);
         }
+      } else {
+        setPageState("upload");
+        setErrorMsg(j.detail || "查询任务失败");
+        clearInterval(timer);
       }
-      if (count >= 60) clearInterval(timer);
+      if (count >= 60) {
+        setPageState("upload");
+        setErrorMsg("检测超时，请重试");
+        clearInterval(timer);
+      }
     }, 1000);
+  }
+
+  if (currentPage === "loading") {
+    const done = job?.done_files || 0;
+    const total = job?.total_files || files.length || 1;
+    const progress = Math.max(8, Math.min(96, (done / total) * 100));
+    return (
+      <div className="forensicPage">
+        <div className="brandCorner">
+          <div className="brandDot">♪</div>
+          <div>
+            <p className="brandMain">音频伪造检测器</p>
+            <p className="brandSub">CHECK</p>
+          </div>
+        </div>
+        <div className="forensicCard">
+          <div className="forensicWave">| | | | |</div>
+          <h2>正在检测</h2>
+          <p>系统正在进行音频取证分析，请稍候...</p>
+          <div className="progressTrack">
+            <div className="progressFill" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="progressText">{done}/{total} 已完成</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentPage === "result") {
+    const displayResults = results.length
+      ? results
+      : [
+          { filename: "sample_01.wav", decision_by_threshold: "bonafide" },
+          { filename: "sample_02.wav", decision_by_threshold: "spoof" },
+        ];
+    const spoofCount = displayResults.filter((item) => item.decision_by_threshold === "spoof").length;
+    const bonaCount = displayResults.length - spoofCount;
+    const headlineIsBona = bonaCount >= spoofCount;
+    const first = displayResults[0] || {};
+    const headlineScoreRaw = headlineIsBona ? first.prob_bonafide : first.prob_spoof;
+    const headlineScore = Number.isFinite(headlineScoreRaw) ? Math.round(headlineScoreRaw * 100) : null;
+    return (
+      <div className="container">
+        <header className="hero">
+          <h1>音频伪造检测器</h1>
+          <p className="heroSub">上传音频文件，辨别其是由AI生成还是真人录制。</p>
+          <p className="heroMeta">保护自己免受语音克隆诈骗和深度伪造音频的侵害。</p>
+        </header>
+        <section className="card resultHeroCard">
+          <div className="resultPosterTop">
+            <p className="posterBrand">检测结果</p>
+          </div>
+          <div className="resultWave" aria-hidden="true">
+            {Array.from({ length: 52 }).map((_, idx) => (
+              <span key={idx} style={{ height: `${28 + ((idx * 17) % 52)}px` }} />
+            ))}
+          </div>
+          <div className="resultHeadline">
+            <p className="headlineValue">{headlineScore !== null ? `${headlineScore}%` : "RESULT"}</p>
+            <span className={headlineIsBona ? "resultBadge bonaBadge" : "resultBadge spoofBadge"}>
+              {headlineIsBona ? "真实语音" : "伪造语音"}
+            </span>
+          </div>
+          <p className="headlineDesc">
+            {headlineIsBona
+              ? "该段音频更接近真人录制特征。"
+              : "该段音频更接近伪造/合成语音特征。"}
+          </p>
+          {/* <p className="headlineMeta">记录统计：真实 {bonaCount} 条，伪造 {spoofCount} 条</p> */}
+          <div className="row resultActionRow">
+            <button onClick={resetToUpload}>继续检测</button>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (
     <div className="container">
-      <h1>S2 音频伪造检测系统</h1>
-      <p className="muted">检测页面：批量文件检测与可视化结果展示</p>
+      <header className="hero">
+        <h1>音频伪造检测器</h1>
+        <p className="heroSub">上传音频文件，辨别其是由AI生成还是真人录制。</p>
+        <p className="heroMeta">保护自己免受语音克隆诈骗和深度伪造音频的侵害。</p>
+      </header>
 
-      <section className="card">
-        <h2>文件检测</h2>
-        <label>阈值: {threshold.toFixed(2)}</label>
-        <input type="range" min="0.1" max="0.9" step="0.01" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
-        <input type="file" multiple accept="audio/*" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
-        <div className="row">
-          <button onClick={submitBatch} disabled={!files.length}>开始检测</button>
-          <button onClick={pollTask} disabled={!jobId}>刷新状态</button>
+      <section className="layoutGrid">
+        <div className="panelCard uploadCard">
+          <div
+            className={`dropArea dragDropArea ${isDragOver ? "dragOver" : ""}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
+            <div className="dropIcon">◉</div>
+            <h2>将音频文件拖放到此处</h2>
+            <p className="muted">或点击下方按钮选择文件</p>
+            <p className="fastHint">3秒获取结果</p>
+            <input
+              ref={fileInputRef}
+              className="hiddenFileInput"
+              style={{ display: "none" }}
+              type="file"
+              multiple
+              accept="audio/*"
+              onChange={(e) => updateFiles(e.target.files)}
+            />
+            {!!files.length && (
+              <p className="pickedFiles">已选择 {files.length} 个文件：{files.map((f) => f.name).join("，")}</p>
+            )}
+            <div className="row centerRow">
+              <button
+                type="button"
+                className="pickBtn"
+                onClick={files.length ? submitBatch : () => fileInputRef.current?.click()}
+              >
+                {files.length ? "开始检测" : "选择要分析的音频"}
+              </button>
+            </div>
+            <p className="muted smallMuted">支持格式：MP3、WAV、OGG、AAC、FLAC、M4A</p>
+            {errorMsg && <p className="error">{errorMsg}</p>}
+          </div>
         </div>
-        {job && <p className="hint">任务状态：{job.status}（{job.done_files || 0}/{job.total_files || 0}）</p>}
-        {job?.status === "failed" && (
-          <p className="error">任务失败：{job?.error || "未知错误"}</p>
-        )}
       </section>
-
-      <section className="card">
-        <h2>检测结果</h2>
-        {results.length === 0 && <p className="hint">暂无结果，请先选择音频并点击“开始检测”。</p>}
-        <table>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>P(spoof)</th>
-              <th>P(bonafide)</th>
-              <th>状态</th>
-              <th>耗时(ms)</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((item, idx) => (
-              <tr key={`${item.filename}-${idx}`}>
-                <td>{item.filename}</td>
-                <td>{(item.prob_spoof * 100).toFixed(2)}%</td>
-                <td>{(item.prob_bonafide * 100).toFixed(2)}%</td>
-                <td>
-                  <span className={item.decision_by_threshold === "spoof" ? "badge spoofBadge" : "badge bonaBadge"}>
-                    {item.decision_by_threshold === "spoof" ? "伪造" : "真实"}
-                  </span>
-                </td>
-                <td>{item.inference_time_ms?.toFixed(1)}</td>
-                <td><button onClick={() => setSelected(item)}>查看</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {selected && (
-        <section className="card">
-          <h2>可视化详情</h2>
-          <p>
-            {selected.filename} | 判定: <b>{selected.decision_by_threshold}</b> | P(spoof): {(selected.prob_spoof * 100).toFixed(2)}%
-          </p>
-          <WavePlot data={selected.waveform} />
-          <MelHeatmap mel={selected.mel_db} />
-        </section>
-      )}
     </div>
   );
 }

@@ -126,6 +126,17 @@ def ordered_columns(rows: List[Dict[str, object]]) -> List[str]:
         "test_PRR",
         "test_acc",
         "test_f1",
+        "test_calib_source",
+        "test_calib_threshold_bonafide",
+        "test_calib_threshold_spoof",
+        "test_calib_FAR",
+        "test_calib_FRR",
+        "test_calib_acc",
+        "test_calib_f1",
+        "test_calib_tp_spoof",
+        "test_calib_tn_bonafide",
+        "test_calib_fp_bonafide_to_spoof",
+        "test_calib_fn_spoof_to_bonafide",
     ]
     keys = set()
     for r in rows:
@@ -163,6 +174,11 @@ def write_markdown(path: Path, rows: List[Dict[str, object]]) -> None:
         "test_min_tDCF",
         "test_FAR",
         "test_FRR",
+        "test_calib_threshold_bonafide",
+        "test_calib_FAR",
+        "test_calib_FRR",
+        "test_calib_acc",
+        "test_calib_f1",
     ]
     present_cols = [c for c in show_cols if any(c in r for r in rows)]
     path.parent.mkdir(parents=True, exist_ok=True)
