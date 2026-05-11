@@ -69,6 +69,11 @@ def parse_experiment_config(exp_dir: Path) -> Dict[str, object]:
     row["cfg_aug_time_mask_max_frames"] = _extract_key_in_block(text, "system", "aug_time_mask_max_frames")
     row["cfg_aug_chunk_shuffle_prob"] = _extract_key_in_block(text, "system", "aug_chunk_shuffle_prob")
     row["cfg_aug_chunk_size"] = _extract_key_in_block(text, "system", "aug_chunk_size")
+    row["cfg_aug_time_reverse_prob"] = _extract_key_in_block(text, "system", "aug_time_reverse_prob")
+    row["cfg_aug_periodic_time_flip_prob"] = _extract_key_in_block(text, "system", "aug_periodic_time_flip_prob")
+    row["cfg_aug_periodic_time_flip_size"] = _extract_key_in_block(text, "system", "aug_periodic_time_flip_size")
+    row["cfg_aug_periodic_frame_shuffle_prob"] = _extract_key_in_block(text, "system", "aug_periodic_frame_shuffle_prob")
+    row["cfg_aug_periodic_frame_shuffle_size"] = _extract_key_in_block(text, "system", "aug_periodic_frame_shuffle_size")
     row["cfg_aug_feat_dropout_prob"] = _extract_key_in_block(text, "system", "aug_feat_dropout_prob")
     row["cfg_threshold_mode"] = _extract_key_in_block(text, "system", "threshold_mode")
     row["cfg_threshold_fixed_bonafide"] = _extract_key_in_block(text, "system", "threshold_fixed_bonafide")
@@ -115,6 +120,9 @@ def ordered_columns(rows: List[Dict[str, object]]) -> List[str]:
         "cfg_aug_time_mask_prob",
         "cfg_aug_time_mask_max_frames",
         "cfg_aug_chunk_shuffle_prob",
+        "cfg_aug_time_reverse_prob",
+        "cfg_aug_periodic_time_flip_prob",
+        "cfg_aug_periodic_frame_shuffle_prob",
         "cfg_aug_feat_dropout_prob",
         "ckpt_path",
         "test_eer",

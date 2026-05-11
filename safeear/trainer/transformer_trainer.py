@@ -75,6 +75,11 @@ class TransformerSpoofTrainer(pl.LightningModule):
         aug_time_mask_max_frames: int = 0,
         aug_chunk_shuffle_prob: float = 0.0,
         aug_chunk_size: int = 0,
+        aug_time_reverse_prob: float = 0.0,
+        aug_periodic_time_flip_prob: float = 0.0,
+        aug_periodic_time_flip_size: int = 50,
+        aug_periodic_frame_shuffle_prob: float = 0.0,
+        aug_periodic_frame_shuffle_size: int = 50,
         aug_feat_dropout_prob: float = 0.0,
         feat_norm_mode: str = "none",
         test_tta_num_segments: int = 1,
@@ -104,6 +109,11 @@ class TransformerSpoofTrainer(pl.LightningModule):
         self.aug_time_mask_max_frames = int(aug_time_mask_max_frames)
         self.aug_chunk_shuffle_prob = float(aug_chunk_shuffle_prob)
         self.aug_chunk_size = int(aug_chunk_size)
+        self.aug_time_reverse_prob = float(aug_time_reverse_prob)
+        self.aug_periodic_time_flip_prob = float(aug_periodic_time_flip_prob)
+        self.aug_periodic_time_flip_size = int(aug_periodic_time_flip_size)
+        self.aug_periodic_frame_shuffle_prob = float(aug_periodic_frame_shuffle_prob)
+        self.aug_periodic_frame_shuffle_size = int(aug_periodic_frame_shuffle_size)
         self.aug_feat_dropout_prob = float(aug_feat_dropout_prob)
         self.feat_norm_mode = str(feat_norm_mode).lower()
         self.test_tta_num_segments = int(test_tta_num_segments)
@@ -183,6 +193,71 @@ class TransformerSpoofTrainer(pl.LightningModule):
                 out[b, :, s:e] = out[b, :, s:e][:, perm]
         return out
 
+    def _apply_time_reverse(self, feat: torch.Tensor) -> torch.Tensor:
+        """Reverse frame order along time (whole utterance), train only."""
+        if self.aug_time_reverse_prob <= 0.0:
+            return feat
+        if feat.dim() != 3:
+            return feat
+        bsz, _, t = feat.shape
+        if t <= 1:
+            return feat
+        apply_mask = torch.rand(bsz, device=feat.device) < self.aug_time_reverse_prob
+        apply_ids = torch.nonzero(apply_mask, as_tuple=False).view(-1)
+        if apply_ids.numel() == 0:
+            return feat
+        out = feat.clone()
+        for b in apply_ids.tolist():
+            out[b] = torch.flip(feat[b], dims=[-1])
+        return out
+
+    def _apply_periodic_time_flip(self, feat: torch.Tensor) -> torch.Tensor:
+        """Within each fixed-length segment along T, reverse frame order (cf. SafeEar forward)."""
+        if self.aug_periodic_time_flip_prob <= 0.0 or self.aug_periodic_time_flip_size <= 1:
+            return feat
+        if feat.dim() != 3:
+            return feat
+        bsz, _, t = feat.shape
+        if t <= 1:
+            return feat
+        apply_mask = torch.rand(bsz, device=feat.device) < self.aug_periodic_time_flip_prob
+        apply_ids = torch.nonzero(apply_mask, as_tuple=False).view(-1)
+        if apply_ids.numel() == 0:
+            return feat
+        out = feat.clone()
+        seg = self.aug_periodic_time_flip_size
+        for b in apply_ids.tolist():
+            row = out[b]
+            for i in range(0, t, seg):
+                row[:, i : i + seg] = torch.flip(row[:, i : i + seg], dims=[-1])
+        return out
+
+    def _apply_periodic_frame_shuffle(self, feat: torch.Tensor) -> torch.Tensor:
+        """Within each fixed-length segment along T, shuffle frames (cf. SafeEar1s forward)."""
+        if self.aug_periodic_frame_shuffle_prob <= 0.0 or self.aug_periodic_frame_shuffle_size <= 1:
+            return feat
+        if feat.dim() != 3:
+            return feat
+        bsz, _, t = feat.shape
+        if t <= 1:
+            return feat
+        apply_mask = torch.rand(bsz, device=feat.device) < self.aug_periodic_frame_shuffle_prob
+        apply_ids = torch.nonzero(apply_mask, as_tuple=False).view(-1)
+        if apply_ids.numel() == 0:
+            return feat
+        out = feat.clone()
+        seg = self.aug_periodic_frame_shuffle_size
+        for b in apply_ids.tolist():
+            row = out[b]
+            for i in range(0, t, seg):
+                e = min(i + seg, t)
+                span = e - i
+                if span <= 1:
+                    continue
+                perm = torch.randperm(span, device=feat.device)
+                row[:, i:e] = row[:, i:e][:, perm]
+        return out
+
     def _apply_feature_dropout(self, feat: torch.Tensor) -> torch.Tensor:
         if self.aug_feat_dropout_prob <= 0.0:
             return feat
@@ -193,6 +268,9 @@ class TransformerSpoofTrainer(pl.LightningModule):
         feat = self._normalize_feat(feat)
         if is_train:
             feat = self._apply_chunk_shuffle(feat)
+            feat = self._apply_periodic_frame_shuffle(feat)
+            feat = self._apply_periodic_time_flip(feat)
+            feat = self._apply_time_reverse(feat)
             feat = self._apply_time_mask(feat)
             feat = self._apply_feature_dropout(feat)
         return feat
