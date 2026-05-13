@@ -1,4 +1,4 @@
-"""Select HuBERT (fairseq) or WavLM (transformers) frame featurizer via env or arguments."""
+"""Select HuBERT, WavLM, or wav2vec 2.0 frame featurizer via env or arguments."""
 from __future__ import annotations
 
 import os
@@ -15,13 +15,15 @@ def create_featurizer(
     feat_kind: Optional[str] = None,
     hubert_ckpt: Optional[str] = None,
     wavlm_model: Optional[str] = None,
+    wav2vec2_model: Optional[str] = None,
 ):
     """
     Args:
         device: torch device for models.
-        feat_kind: ``"wavlm"`` | ``"hubert"``. If None, uses env ``SAFEAR_FEAT`` (default ``wavlm``).
+        feat_kind: ``"wavlm"`` | ``"hubert"`` | ``"wav2vec2"``. If None, uses env ``SAFEAR_FEAT`` (default ``wavlm``).
         hubert_ckpt: Path to fairseq HuBERT checkpoint (HuBERT only).
         wavlm_model: Hugging Face model id (WavLM only); default ``microsoft/wavlm-base``.
+        wav2vec2_model: Hugging Face model id (wav2vec 2.0 only); default ``facebook/wav2vec2-base``.
     """
     kind = (feat_kind or os.environ.get("SAFEAR_FEAT", "wavlm")).strip().lower()
     if kind in ("hubert", "h", "fairseq_hubert"):
@@ -36,4 +38,9 @@ def create_featurizer(
 
         name = wavlm_model or os.environ.get("SAFEAR_WAVLM", "microsoft/wavlm-base")
         return WavLMFeaturizer(model_name=name, device=device)
-    raise ValueError(f"Unknown feat_kind / SAFEAR_FEAT={kind!r}; use 'wavlm' or 'hubert'")
+    if kind in ("wav2vec2", "wav2vec", "w2v2", "facebook_wav2vec2"):
+        from inference.wav2vec2_featurizer import Wav2Vec2Featurizer
+
+        name = wav2vec2_model or os.environ.get("SAFEAR_WAV2VEC2", "facebook/wav2vec2-base")
+        return Wav2Vec2Featurizer(model_name=name, device=device)
+    raise ValueError(f"Unknown feat_kind / SAFEAR_FEAT={kind!r}; use 'wavlm', 'hubert', or 'wav2vec2'")

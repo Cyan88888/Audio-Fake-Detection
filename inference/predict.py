@@ -33,12 +33,13 @@ def main():
     )
     parser.add_argument(
         "--feat",
-        choices=("wavlm", "hubert"),
+        choices=("wavlm", "hubert", "wav2vec2"),
         default=os.environ.get("SAFEAR_FEAT", "wavlm"),
-        help="Frame backend: WavLM (default) or fairseq HuBERT",
+        help="Frame backend: WavLM (default), fairseq HuBERT, or wav2vec 2.0",
     )
     parser.add_argument("--hubert_ckpt", default=str(_ROOT / "model_zoos" / "hubert_base_ls960.pt"))
     parser.add_argument("--wavlm_model", default="microsoft/wavlm-base")
+    parser.add_argument("--wav2vec2_model", default="facebook/wav2vec2-base")
     parser.add_argument("--max_len", type=int, default=64600)
     parser.add_argument("--device", default=None)
     parser.add_argument("--json", action="store_true", help="Print JSON only")
@@ -58,6 +59,7 @@ def main():
         feat_kind=args.feat,
         hubert_ckpt=args.hubert_ckpt,
         wavlm_model=args.wavlm_model,
+        wav2vec2_model=args.wav2vec2_model,
     )
     feat = featurizer.file_to_feat(args.audio, max_len=args.max_len).to(device)
 

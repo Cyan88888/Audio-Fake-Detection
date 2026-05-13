@@ -1,4 +1,5 @@
 import glob
+import logging
 import random
 import os
 import torch
@@ -8,6 +9,9 @@ from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
 import numpy as np
 import torchaudio.functional
+
+logger = logging.getLogger(__name__)
+
 
 def get_path_iterator(tsv):
     """
@@ -48,6 +52,7 @@ class ASVSppof2021(Dataset):
         is_train=True,
         codec=True,
         eval_return_full=False,
+        drop_missing_feat=False,
     ):
         """
         Initialize the dataset with paths and parameters.
@@ -59,11 +64,13 @@ class ASVSppof2021(Dataset):
             max_len (int): Maximum length of audio data in samples.
             is_train (bool): Flag indicating if the dataset is for training.
             codec (bool): Flag indicating if audio codec transformations should be applied.
+            drop_missing_feat (bool): If True, keep only utterances whose ``.npy`` exists under
+                ``feat_dir`` (same relative path as in TSV). Useful for partial feature dumps;
+                metrics are then **not** comparable to the full official eval set.
         """
         super().__init__()
         root, self.lines = get_path_iterator(tsv_path)
         self.feat_dir = Path(feat_dir)
-        _, self.sr = torchaudio.load(root + "/" + self.lines[0].split('\t')[0])
         self.max_len = max_len
         self.is_train = is_train
         self.codec = codec
@@ -78,7 +85,47 @@ class ASVSppof2021(Dataset):
             for meta_info in meta_infos
         }
 
+        if drop_missing_feat:
+            n_before = len(self.lines)
+            kept, skipped_no_proto = ASVSppof2021._lines_with_existing_features(
+                self.lines, self.root, self.feat_dir, self.mapping
+            )
+            self.lines = kept
+            n_after = len(self.lines)
+            logger.warning(
+                "ASVSppof2021 drop_missing_feat=True: kept %d / %d TSV lines (skipped missing .npy; "
+                "%d skipped due to missing protocol key). Subset eval — metrics not comparable to full LA eval.",
+                n_after,
+                n_before,
+                skipped_no_proto,
+            )
+            if not self.lines:
+                raise RuntimeError(
+                    "drop_missing_feat=True but no utterances left with existing .npy under feat_dir."
+                )
+
+        _, self.sr = torchaudio.load(str(self.root / Path(self.lines[0].split("\t")[0])))
+
         self.formated_lines = ["wav", "mp3", "ogg", "vorbis", "amr-nb", "amb", "flac", "sph", "gsm", "htk"]
+
+    @staticmethod
+    def _lines_with_existing_features(lines, root: Path, feat_dir: Path, mapping: dict):
+        kept = []
+        skipped_no_proto = 0
+        for line in lines:
+            relative_path = Path(line.split("\t")[0])
+            npy_path = feat_dir / relative_path.with_suffix(".npy")
+            if not npy_path.is_file():
+                continue
+            utt_id = relative_path.stem
+            if utt_id not in mapping:
+                skipped_no_proto += 1
+                continue
+            audio_path = root / relative_path
+            if not audio_path.is_file():
+                continue
+            kept.append(line)
+        return kept, skipped_no_proto
 
     def __len__(self):
         """
@@ -217,6 +264,7 @@ class DataClass:
         test_path, 
         max_len=64600,
         eval_return_full=False,
+        drop_missing_feat=False,
     ) -> None:
 
         super().__init__()
@@ -226,6 +274,7 @@ class DataClass:
         self.test_path = test_path
         self.max_len = max_len
         self.eval_return_full = bool(eval_return_full)
+        self.drop_missing_feat = bool(drop_missing_feat)
 
         # Get different datasets
         self.train = ASVSppof2021(
@@ -233,7 +282,8 @@ class DataClass:
             self.train_path[1], 
             self.train_path[2], 
             self.max_len, 
-            is_train=True
+            is_train=True,
+            drop_missing_feat=self.drop_missing_feat,
         )
         self.val = ASVSppof2021(
             self.val_path[0], 
@@ -243,6 +293,7 @@ class DataClass:
             is_train=False,
             codec=False,
             eval_return_full=self.eval_return_full,
+            drop_missing_feat=self.drop_missing_feat,
         )
         self.test = ASVSppof2021(
             self.test_path[0], 
@@ -252,6 +303,7 @@ class DataClass:
             is_train=False,
             codec=False,
             eval_return_full=self.eval_return_full,
+            drop_missing_feat=self.drop_missing_feat,
         )
     def __call__(self, mode: str) -> ASVSppof2021:
         """Get dataset for a given mode.
