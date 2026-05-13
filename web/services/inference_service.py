@@ -14,6 +14,7 @@ import torchaudio
 import torchaudio.functional as AF
 
 from .. import config
+from ..audio_formats import validate_audio_upload_filename
 
 import sys
 
@@ -127,8 +128,17 @@ class InferenceService:
             z = z[:, :max_t]
         return {"waveform": wave_list, "mel_db": z.tolist(), "sample_rate": sr}
 
-    def _decode_audio(self, raw: bytes) -> Tuple[torch.Tensor, int]:
-        wav, sr = torchaudio.load(io.BytesIO(raw))
+    def _decode_audio(self, raw: bytes, filename: str) -> Tuple[torch.Tensor, int]:
+        if not raw:
+            raise ValueError("音频内容为空，请重新上传有效文件。")
+        try:
+            wav, sr = torchaudio.load(io.BytesIO(raw))
+        except Exception as exc:
+            raise ValueError(
+                f"音频解码失败（{Path(filename).name}）：{exc}。"
+                "无损或常见开源容器（WAV、FLAC、OGG）通常在装有 libsndfile 的环境下即可解码；"
+                "MP3、AAC、M4A 等一般需要服务器安装 FFmpeg，并使 torchaudio 能使用该解码后端。"
+            ) from exc
         if wav.shape[0] > 1:
             wav = wav.mean(dim=0, keepdim=True)
         if sr != 16000:
@@ -139,7 +149,8 @@ class InferenceService:
     def predict_bytes(self, raw: bytes, filename: str, max_len: int, threshold: float) -> Dict[str, Any]:
         if not self.is_ready():
             raise RuntimeError("Model not loaded.")
-        wav, sr = self._decode_audio(raw)
+        validate_audio_upload_filename(filename)
+        wav, sr = self._decode_audio(raw, filename)
         wav_1d = wav.squeeze(0)
         plot_payload = self._wav_mel_for_plot(wav_1d, sr)
 

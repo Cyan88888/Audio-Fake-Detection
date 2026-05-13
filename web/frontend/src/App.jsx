@@ -1,7 +1,6 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 
 export default function App() {
-  const [token] = useState("");
   const [files, setFiles] = useState([]);
   const [jobId, setJobId] = useState("");
   const [job, setJob] = useState(null);
@@ -13,11 +12,6 @@ export default function App() {
   const pathname = window.location.pathname;
   const routePage = pathname === "/loading" ? "loading" : pathname === "/result" ? "result" : "upload";
   const currentPage = routePage === "upload" ? pageState : routePage;
-
-  const authHeader = useMemo(
-    () => (token ? { Authorization: `Bearer ${token}` } : {}),
-    [token]
-  );
 
   async function parseApiResponse(res) {
     const text = await res.text();
@@ -36,7 +30,7 @@ export default function App() {
     const fd = new FormData();
     for (const f of files) fd.append("files", f);
     fd.append("max_len", "64600");
-    const res = await fetch("/api/predict_batch", { method: "POST", headers: authHeader, body: fd });
+    const res = await fetch("/api/predict_batch", { method: "POST", body: fd });
     const j = await parseApiResponse(res);
     if (!res.ok) {
       setPageState("upload");
@@ -84,7 +78,7 @@ export default function App() {
     let count = 0;
     const timer = setInterval(async () => {
       count += 1;
-      const res = await fetch(`/api/tasks/${targetJobId}`, { headers: authHeader });
+      const res = await fetch(`/api/tasks/${targetJobId}`);
       const j = await parseApiResponse(res);
       if (res.ok) {
         setJob(j);
@@ -227,7 +221,9 @@ export default function App() {
                 {files.length ? "开始检测" : "选择要分析的音频"}
               </button>
             </div>
-            <p className="muted smallMuted">支持格式：MP3、WAV、OGG、AAC、FLAC、M4A</p>
+            <p className="muted smallMuted">
+              允许扩展名：.wav / .flac / .ogg / .opus / .mp3 / .aac / .m4a / .mp4
+            </p>
             {errorMsg && <p className="error">{errorMsg}</p>}
           </div>
         </div>

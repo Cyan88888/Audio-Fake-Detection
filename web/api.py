@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .routes import audit_router, auth_router, health_router, history_router, predict_router, task_router
+from .routes import health_router, predict_router, task_router
 from .services.inference_service import inference_service
 
 
@@ -38,11 +38,8 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
-app.include_router(auth_router)
 app.include_router(predict_router)
 app.include_router(task_router)
-app.include_router(history_router)
-app.include_router(audit_router)
 
 
 @app.get("/")

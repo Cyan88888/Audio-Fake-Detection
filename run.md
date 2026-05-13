@@ -147,123 +147,131 @@ uvicorn web.api:app --host 0.0.0.0 --port 8080
 1. **`--ckpt_path`**：必须指向你本机 `checkpoints/` 里真实存在的 `.ckpt`；若文件名不同，只改这一条里的路径即可。  
 2. **`test.py`**：会先做验证再测试；配置仍从 `config/transformer_spoof19_wavlm.yaml` 读取。  
 3. **仅 CPU / 其他 CUDA 版本**：需自行把 PyTorch 安装行换成 [pytorch.org](https://pytorch.org) 上对应命令，其余步骤不变。
+4. **Web 上传音频**：服务端按扩展名白名单校验（见 `web/audio_formats.py`）；解码依赖 `torchaudio`。**MP3、AAC、M4A** 等一般需要系统安装 **FFmpeg**，否则会解码失败并返回 400。
 
 若你希望 **「从全新 clone 到跑通」** 再缩短成最少条数，可以说一下你是否已有 **dump 好的 WavLM 特征**，我可以给一版「跳过特征导出」的最短指令链。
 
 -------------------------------------------
 
-已完成你要的“阶段1（深度与正则）”落地准备：
+已按你的要求精简 Web：现在只保留**基础音频检测**，删除/移除了历史记录、鉴权、审计、数据库相关代码链路。
 
-### 我实际改了哪些文件
+## 已修改内容
+后端现在只保留这些接口：
 
-- 新增配置：
-  - `config/ablation_s1_base.yaml`
-  - `config/ablation_s1_l3_d015.yaml`
-  - `config/ablation_s1_l4_d020.yaml`
-  - `config/ablation_s1_l2_h16_d015.yaml`
-- 新增运行脚本：
-  - `scripts/run_stage1_ablation.sh`
+```text
+GET  /
+GET  /health
+POST /api/predict
+POST /api/predict_batch
+GET  /api/tasks/{job_id}
+```
 
-这 4 个配置分别对应你要求的：
-- 基线：2层、8头、dropout=0.1
-- 3层、8头、dropout=0.15
-- 4层、8头、dropout=0.2
-- 2层、16头、dropout=0.15
+已移除：
 
-并保持了你当前 tDCF 配置（`use_min_tdcf: true` + `tdcf_la_root`）。
+- `/api/auth/login`
+- `/api/history`
+- `/api/history/export.csv`
+- `/api/history/export.json`
+- `/api/audit`
+- SQLite 数据库写入
+- token 鉴权
+- 审计日志
+- 历史记录保存
 
----
+已检查：
 
-## 具体运行步骤（可直接执行）
+- 后端 Python 语法检查通过
+- React 前端构建通过
+- FastAPI 当前路由检查通过
 
-### 1) 进入项目目录
+## 当前报错原因
+你终端里的：
+
+```text
+Waiting for application startup.
+Killed
+```
+
+不是普通 Python 报错，而是进程被系统直接杀掉。结合当前终端信息：
+
+```text
+内存：2 GB
+GPU ：No devices were found
+```
+
+主要原因基本可以确定是：**启动时加载 HuBERT 特征前端和检测模型占用内存过高，2GB 内存不足，系统 OOM 后直接 kill 进程**。
+
+如果要使用 HuBERT 最优模型进行 Web 推理，建议至少换到有 GPU 或更高内存的实例。当前 2GB 内存环境不适合在线加载 HuBERT。
+
+## HuBERT 最优模型启动命令
+在资源足够的环境下运行：
+
 ```bash
 cd /root/autodl-tmp/SafeEar
 ```
 
-### 2) 逐个训练四组实验
 ```bash
-python train.py --conf_dir config/ablation_s1_base.yaml
+conda activate safeear
 ```
 
 ```bash
-python train.py --conf_dir config/ablation_s1_l3_d015.yaml
+export SAFEAR_CKPT=Exps/Search_PoolMax_S3_ls002_hubert/checkpoints/epoch=4-val_eer=0.0009.ckpt
 ```
 
 ```bash
-python train.py --conf_dir config/ablation_s1_l4_d020.yaml
+export SAFEAR_FEAT=hubert
 ```
 
 ```bash
-python train.py --conf_dir config/ablation_s1_l2_h16_d015.yaml
-```
-
-> 也可一次性按顺序跑：
-```bash
-bash scripts/run_stage1_ablation.sh
-```
-
-### 3) 查看每组最优 checkpoint
-```bash
-ls -la Exps/Ablation_S1_base/checkpoints
+export SAFEAR_HUBERT=model_zoos/hubert_base_ls960.pt
 ```
 
 ```bash
-ls -la Exps/Ablation_S1_l3_d015/checkpoints
+export SAFEAR_WEB_FIXED_THRESHOLD_SPOOF=0.5
 ```
 
 ```bash
-ls -la Exps/Ablation_S1_l4_d020/checkpoints
+uvicorn web.api:app --host 0.0.0.0 --port 8080
 ```
+
+如果仍然 `Killed`，就是运行环境内存不足，不是代码逻辑错误。
+
+## 当前前端页面路由
+前端主要在 `web/frontend/src/App.jsx` 中控制页面：
+
+```text
+/          上传页面
+/loading   检测中页面
+/result    检测结果页面
+```
+
+实际逻辑是：
+
+- 访问 `/` 或其他未匹配路径：显示上传页面；
+- 访问 `/loading`：显示加载进度页面；
+- 访问 `/result`：显示结果页面；
+- 正常点击“开始检测”时，前端通过状态切换页面，不一定改变浏览器 URL。
+
+你要调整页面布局，主要改这几个区域：
+
+- 上传页：`currentPage === "upload"` 对应最后一个 `return`
+- 加载页：`currentPage === "loading"`
+- 结果页：`currentPage === "result"`
+
+## 阈值建议
+更推荐：**后端固定阈值**。
+
+原因是你的系统是毕业设计展示和检测系统实现，不是阈值调参平台。后端固定阈值有几个优点：
+
+- 结果更稳定，便于复现实验；
+- 避免前端随意改阈值导致结果前后不一致；
+- 论文中更容易说明系统判决规则；
+- 更符合“部署系统”的设计思路。
+
+当前代码已经采用后端固定阈值：
 
 ```bash
-ls -la Exps/Ablation_S1_l2_h16_d015/checkpoints
+export SAFEAR_WEB_FIXED_THRESHOLD_SPOOF=0.5
 ```
 
-### 4) 分别测试（把 `<best>.ckpt` 替换成真实文件名）
-```bash
-python test.py --conf_dir config/ablation_s1_base.yaml --ckpt_path Exps/Ablation_S1_base/checkpoints/<best>.ckpt
-```
-
-```bash
-python test.py --conf_dir config/ablation_s1_l3_d015.yaml --ckpt_path Exps/Ablation_S1_l3_d015/checkpoints/<best>.ckpt
-```
-
-```bash
-python test.py --conf_dir config/ablation_s1_l4_d020.yaml --ckpt_path Exps/Ablation_S1_l4_d020/checkpoints/<best>.ckpt
-```
-
-```bash
-python test.py --conf_dir config/ablation_s1_l2_h16_d015.yaml --ckpt_path Exps/Ablation_S1_l2_h16_d015/checkpoints/<best>.ckpt
-```
-
-### 5) 画图（训练曲线/ROC/PR/混淆矩阵）
-```bash
-python scripts/plot_experiment.py --exp Exps/Ablation_S1_base
-```
-
-```bash
-python scripts/plot_experiment.py --exp Exps/Ablation_S1_l3_d015
-```
-
-```bash
-python scripts/plot_experiment.py --exp Exps/Ablation_S1_l4_d020
-```
-
-```bash
-python scripts/plot_experiment.py --exp Exps/Ablation_S1_l2_h16_d015
-```
-
----
-
-## 结果对比建议（论文主表）
-
-每组提取：
-- `test_eer`
-- `test_minDCF`
-- `test_min_tDCF`
-- `test_precision`
-- `test_recall`
-- `test_roc_auc`
-
-如果你要，我下一步可以给你一个 `results_stage1.csv` 模板（含“相对基线提升Δ”列），你直接填日志数值就能贴到论文里。
+前端即使传 `threshold`，后端也会忽略，统一使用环境变量中的固定阈值。

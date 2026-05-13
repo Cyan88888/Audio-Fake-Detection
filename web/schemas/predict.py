@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class PredictItem(BaseModel):
@@ -41,11 +41,3 @@ class BatchJobStatus(BaseModel):
     result_path: Optional[str] = None
 
 
-class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=1)
-
-
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"

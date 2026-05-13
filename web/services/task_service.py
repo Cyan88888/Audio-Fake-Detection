@@ -6,8 +6,6 @@ from typing import Any, Dict, List
 
 from fastapi import BackgroundTasks
 
-from .audit_service import log_action
-from .history_service import save_prediction_items
 from .inference_service import inference_service
 
 
@@ -49,7 +47,6 @@ class TaskService:
         files: List[Dict[str, Any]],
         threshold: float,
         max_len: int,
-        actor: str,
     ) -> None:
         self._update(job_id, status="running")
         items: List[Dict[str, Any]] = []
@@ -65,14 +62,11 @@ class TaskService:
                 )
                 items.append(item)
                 self._update(job_id, done_files=idx)
-            save_prediction_items(job_id=job_id, items=items)
             now = datetime.now(timezone.utc).isoformat()
             self._update(job_id, status="completed", completed_at=now, items=items)
-            log_action("predict_batch", actor, f"job={job_id} files={len(items)}")
         except Exception as e:  # noqa: BLE001
             now = datetime.now(timezone.utc).isoformat()
             self._update(job_id, status="failed", completed_at=now, error=str(e))
-            log_action("predict_batch_failed", actor, f"job={job_id} error={e}")
 
     def enqueue_batch(
         self,
@@ -80,10 +74,9 @@ class TaskService:
         files: List[Dict[str, Any]],
         threshold: float,
         max_len: int,
-        actor: str,
     ) -> str:
         job_id = self.create_job(total_files=len(files))
-        bg.add_task(self.run_batch, job_id, files, threshold, max_len, actor)
+        bg.add_task(self.run_batch, job_id, files, threshold, max_len)
         return job_id
 
 
