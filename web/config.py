@@ -8,17 +8,38 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = Path(__file__).resolve().parent
 
 
+# Web 推理默认使用 HuBERT 最优 checkpoint（与 run.md 一致）
+DEFAULT_HUBERT_CKPT = (
+    ROOT_DIR
+    / "Exps"
+    / "Search_PoolMax_S3_ls002_hubert"
+    / "checkpoints"
+    / "epoch=4-val_eer=0.0009.ckpt"
+)
+
+
 def get_device_name() -> str:
-    return os.environ.get("SAFEAR_DEVICE", "cuda")
+    """
+    Device for web inference.
+    - ``SAFEAR_DEVICE`` if set (``cuda`` / ``cpu``)
+    - else ``cuda`` when available, otherwise ``cpu`` (无 GPU 时自动 CPU，开 GPU 后重启即用 CUDA)
+    """
+    import torch
+
+    override = os.environ.get("SAFEAR_DEVICE", "").strip().lower()
+    if override:
+        if override.startswith("cuda") and not torch.cuda.is_available():
+            return "cpu"
+        return override
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def get_ckpt_path() -> str:
-    default_ckpt = ROOT_DIR / "Exps" / "Search_PoolMax_S3_ls002" / "checkpoints" / "epoch=6-val_eer=0.0266.ckpt"
-    return os.environ.get("SAFEAR_CKPT", str(default_ckpt))
+    return os.environ.get("SAFEAR_CKPT", str(DEFAULT_HUBERT_CKPT))
 
 
 def get_feat_kind() -> str:
-    return os.environ.get("SAFEAR_FEAT", "wavlm")
+    return os.environ.get("SAFEAR_FEAT", "hubert")
 
 
 def get_hubert_path() -> str:

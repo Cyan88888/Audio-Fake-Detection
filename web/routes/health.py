@@ -15,5 +15,6 @@ def health():
         "status": "ok" if ready else "no_model",
         "ckpt": config.get_ckpt_path(),
         "feat": config.get_feat_kind(),
+        "device": config.get_device_name(),
         "model_version": inference_service.model_version,
     }

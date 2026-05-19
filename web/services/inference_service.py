@@ -84,7 +84,7 @@ class InferenceService:
         return (feat - mean) / std
 
     def load(self) -> None:
-        self._device = torch.device(config.get_device_name() if torch.cuda.is_available() else "cpu")
+        self._device = torch.device(config.get_device_name())
         ckpt = config.get_ckpt_path()
         if not ckpt or not Path(ckpt).is_file():
             self._detector = None
