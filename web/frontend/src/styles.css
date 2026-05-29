@@ -426,7 +426,14 @@ tbody tr:hover {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #22c55e, #4ade80);
-  transition: width 0.25s ease;
+  transition: width 0.35s ease;
+}
+
+.loadingStatusText {
+  margin: 0 0 8px;
+  color: #4c7a66;
+  min-height: 1.4em;
+  word-break: break-all;
 }
 
 .progressText {
@@ -531,6 +538,35 @@ tbody tr:hover {
 .resultActionRow {
   margin-top: 16px;
   justify-content: center;
+}
+
+.batchSummaryValue {
+  font-size: clamp(1.4rem, 3.6vw, 2.2rem);
+}
+
+.batchResultsCard {
+  margin-top: 0;
+}
+
+.batchResultsCard h2 {
+  margin-bottom: 16px;
+  font-size: 1.2rem;
+}
+
+.batchTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.batchResultsTable {
+  min-width: 640px;
+}
+
+.filenameCell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes pulseWave {

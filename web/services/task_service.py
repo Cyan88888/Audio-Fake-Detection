@@ -54,6 +54,12 @@ class TaskService:
             for idx, file_obj in enumerate(files, start=1):
                 raw = file_obj["raw"]
                 filename = file_obj.get("filename") or f"file_{idx}"
+                self._update(
+                    job_id,
+                    status="running",
+                    current_index=idx,
+                    current_filename=filename,
+                )
                 item = inference_service.predict_bytes(
                     raw=raw,
                     filename=filename,
@@ -61,7 +67,7 @@ class TaskService:
                     threshold=threshold,
                 )
                 items.append(item)
-                self._update(job_id, done_files=idx)
+                self._update(job_id, done_files=idx, items=list(items))
             now = datetime.now(timezone.utc).isoformat()
             self._update(job_id, status="completed", completed_at=now, items=items)
         except Exception as e:  # noqa: BLE001

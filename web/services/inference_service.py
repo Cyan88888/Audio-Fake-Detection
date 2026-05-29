@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import os
 import time
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ import torchaudio
 import torchaudio.functional as AF
 
 from .. import config
+from ..audio_decode import load_audio_bytes
 from ..audio_formats import validate_audio_upload_filename
 
 import sys
@@ -129,16 +129,7 @@ class InferenceService:
         return {"waveform": wave_list, "mel_db": z.tolist(), "sample_rate": sr}
 
     def _decode_audio(self, raw: bytes, filename: str) -> Tuple[torch.Tensor, int]:
-        if not raw:
-            raise ValueError("音频内容为空，请重新上传有效文件。")
-        try:
-            wav, sr = torchaudio.load(io.BytesIO(raw))
-        except Exception as exc:
-            raise ValueError(
-                f"音频解码失败（{Path(filename).name}）：{exc}。"
-                "无损或常见开源容器（WAV、FLAC、OGG）通常在装有 libsndfile 的环境下即可解码；"
-                "MP3、AAC、M4A 等一般需要服务器安装 FFmpeg，并使 torchaudio 能使用该解码后端。"
-            ) from exc
+        wav, sr = load_audio_bytes(raw, filename)
         if wav.shape[0] > 1:
             wav = wav.mean(dim=0, keepdim=True)
         if sr != 16000:

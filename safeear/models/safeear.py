@@ -861,7 +861,8 @@ class TransformerClassifier(Module):
     def forward(self, x):
         x = torch.transpose(x,-1,-2)
         seq_len = x.size(1)
-        x += self.positional_emb[:, :seq_len, :]
+        if self.positional_emb is not None:
+            x += self.positional_emb[:, :seq_len, :]
 
         x = self.dropout(x)
         for blk in self.blocks:
