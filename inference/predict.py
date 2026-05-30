@@ -34,7 +34,7 @@ def main():
     parser.add_argument(
         "--feat",
         choices=("wavlm", "hubert", "wav2vec2"),
-        default=os.environ.get("SAFEAR_FEAT", "wavlm"),
+        default=os.environ.get("SPOOFDET_FEAT") or os.environ.get("SAFEAR_FEAT", "hubert"),
         help="Frame backend: WavLM (default), fairseq HuBERT, or wav2vec 2.0",
     )
     parser.add_argument("--hubert_ckpt", default=str(_ROOT / "model_zoos" / "hubert_base_ls960.pt"))

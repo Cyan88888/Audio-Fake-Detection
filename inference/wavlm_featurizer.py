@@ -18,7 +18,7 @@ import torchaudio
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Must match ``feat_duration = max_len // 320`` in ``safeear/datas/asvspoof19.py``.
+# Must match ``feat_duration = max_len // 320`` in ``spoofdet/datas/asvspoof19.py``.
 SAMPLES_PER_FRAME: int = 320
 
 

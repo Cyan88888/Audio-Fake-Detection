@@ -43,9 +43,11 @@ class InferenceService:
     def _resolve_feat_norm_mode(ckpt_path: str) -> str:
         """
         Match training-time feature normalization (see ``TransformerSpoofTrainer.feat_norm_mode``).
-        Priority: env ``SAFEAR_FEAT_NORM`` -> Lightning ``hyper_parameters`` -> ``config.yaml`` -> none.
+        Priority: env ``SPOOFDET_FEAT_NORM`` (legacy ``SAFEAR_FEAT_NORM``) -> hyper_parameters -> config.yaml -> none.
         """
-        override = os.environ.get("SAFEAR_FEAT_NORM", "").strip().lower()
+        override = (
+            os.environ.get("SPOOFDET_FEAT_NORM") or os.environ.get("SAFEAR_FEAT_NORM", "")
+        ).strip().lower()
         if override in {"none", "utt_cmvn"}:
             return override
         if override:
@@ -93,17 +95,25 @@ class InferenceService:
             self._feat_norm_mode = "none"
             return
 
+        print(f"[web] device={self._device}, loading detector from {ckpt} ...", flush=True)
         self._feat_norm_mode = self._resolve_feat_norm_mode(ckpt)
         self._detector = load_detector_auto(ckpt, map_location=str(self._device))
         self._detector.eval()
         self._detector.to(self._device)
+        feat_kind = config.get_feat_kind()
+        print(
+            f"[web] detector ready; loading {feat_kind} featurizer "
+            f"(CPU 首次加载 HuBERT 约 2–5 分钟，请耐心等待) ...",
+            flush=True,
+        )
         self._featurizer = create_featurizer(
             self._device,
-            feat_kind=config.get_feat_kind(),
+            feat_kind=feat_kind,
             hubert_ckpt=config.get_hubert_path(),
             wavlm_model=config.get_wavlm_model(),
         )
         self._model_version = Path(ckpt).name
+        print(f"[web] models ready (version={self._model_version})", flush=True)
 
     def is_ready(self) -> bool:
         return self._detector is not None and self._featurizer is not None and self._device is not None

@@ -4,6 +4,7 @@ Requires fairseq (see project requirements / fairseq_ours) and hubert_base_ls960
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -13,6 +14,9 @@ import torch.nn.functional as F
 import torchaudio
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_FAIRSEQ_ROOT = _REPO_ROOT / "fairseq_ours"
+if _FAIRSEQ_ROOT.is_dir() and str(_FAIRSEQ_ROOT) not in sys.path:
+    sys.path.insert(0, str(_FAIRSEQ_ROOT))
 
 
 class HubertFeaturizer:

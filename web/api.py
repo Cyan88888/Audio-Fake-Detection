@@ -2,7 +2,7 @@
 FastAPI entrypoint for S2 web system.
 
 Start:
-  export SAFEAR_CKPT=Exps/Ablation_S2_pe_learnable/checkpoints/epoch=7-val_eer=0.0247.ckpt
+  export SPOOFDET_CKPT=Exps/Ablation_Hubert_pool_mean/checkpoints/epoch=7-val_eer=0.0012.ckpt
   uvicorn web.api:app --host 0.0.0.0 --port 8080
 """
 

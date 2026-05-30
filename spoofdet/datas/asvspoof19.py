@@ -49,7 +49,8 @@ class ASVSppof2019(Dataset):
         # 关键修正：分别定义音频根路径和特征根路径
         self.feat_dir = Path(feat_dir)  # 配置文件传入的Hubert特征路径
         self.audio_root = Path(
-            os.environ.get("SAFEAR_ASVSPOOF2019_ROOT", _REPO_ROOT / "datas" / "datasets" / "ASVSpoof2019")
+            os.environ.get("SPOOFDET_ASVSPOOF2019_ROOT")
+            or os.environ.get("SAFEAR_ASVSPOOF2019_ROOT", _REPO_ROOT / "datas" / "datasets" / "ASVSpoof2019")
         )
         self.max_len = max_len 
         self.is_train = is_train

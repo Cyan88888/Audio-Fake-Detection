@@ -2,12 +2,12 @@
 # using best checkpoint from Search_PoolMax_S3_ls002_hubert (HuBERT-base L9 + max pooling).
 
 datamodule:
-  _target_: safeear.datas.asvspoof21.DataModule
+  _target_: spoofdet.datas.asvspoof21.DataModule
   batch_size: 64
   num_workers: 8
   pin_memory: true
   DataClass_dict:
-    _target_: safeear.datas.asvspoof21.DataClass
+    _target_: spoofdet.datas.asvspoof21.DataClass
     # test.py instantiates all splits in setup(); point all paths to eval for pure inference workflow
     train_path:
       - datas/ASVSpoof2021/eval.tsv
@@ -26,7 +26,7 @@ datamodule:
     drop_missing_feat: true
 
 detect_model:
-  _target_: safeear.models.detector_transformer.FrameTransformerDetector
+  _target_: spoofdet.models.detector_transformer.FrameTransformerDetector
   input_dim: 768
   embedding_dim: 768
   num_classes: 2
@@ -41,7 +41,7 @@ detect_model:
   sequence_length: 512
 
 system:
-  _target_: safeear.trainer.transformer_trainer.TransformerSpoofTrainer
+  _target_: spoofdet.trainer.transformer_trainer.TransformerSpoofTrainer
   lr: 0.0003
   save_score_path: ${exp.dir}/${exp.name}
   threshold_mode: val_mindcf

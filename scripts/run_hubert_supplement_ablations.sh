@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 一键串行：HuBERT 补充消融（训练 + 自动选最优 ckpt 测试 + 汇总）
 # 用法（仓库根目录）:
-#   conda activate safeear
+#   conda activate spoofdet
 #   nohup bash scripts/run_hubert_supplement_ablations.sh > Exps/_logs/supplement_ablations/nohup.log 2>&1 &
 set -euo pipefail
 

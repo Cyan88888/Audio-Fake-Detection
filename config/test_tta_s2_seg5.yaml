@@ -1,10 +1,10 @@
 datamodule:
-  _target_: safeear.datas.asvspoof19.DataModule
+  _target_: spoofdet.datas.asvspoof19.DataModule
   batch_size: 32
   num_workers: 8
   pin_memory: true
   DataClass_dict:
-    _target_: safeear.datas.asvspoof19.DataClass
+    _target_: spoofdet.datas.asvspoof19.DataClass
     train_path:
       - datas/ASVSpoof2019/train.tsv
       - datas/ASVSpoof2019/ASVspoof2019.LA.cm.train.trn.txt
@@ -21,7 +21,7 @@ datamodule:
     eval_return_full: true
 
 detect_model:
-  _target_: safeear.models.detector_transformer.FrameTransformerDetector
+  _target_: spoofdet.models.detector_transformer.FrameTransformerDetector
   input_dim: 768
   embedding_dim: 768
   num_classes: 2
@@ -35,7 +35,7 @@ detect_model:
   sequence_length: 512
 
 system:
-  _target_: safeear.trainer.transformer_trainer.TransformerSpoofTrainer
+  _target_: spoofdet.trainer.transformer_trainer.TransformerSpoofTrainer
   lr: 0.0003
   save_score_path: ${exp.dir}/${exp.name}
   threshold_mode: val_mindcf

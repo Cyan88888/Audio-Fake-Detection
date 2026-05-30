@@ -1,49 +1,41 @@
 #!/usr/bin/env bash
-# 一键启动 SafeEar Web 检测服务并在本机浏览器中打开页面。
+# 一键启动 AudioForgeryDet Web 检测服务并在本机浏览器中打开页面。
 #
 # 默认模型：Exps/Search_PoolMax_S3_ls002_hubert/checkpoints/epoch=4-val_eer=0.0009.ckpt
-# 可选环境变量：
-#   SAFEAR_DEVICE                      cuda | cpu；未设置时：有 GPU 用 cuda，否则 cpu
-#   SAFEAR_CKPT / SAFEAR_FEAT / SAFEAR_HUBERT  覆盖模型与特征前端
-#   SAFEAR_WEB_HOST / SAFEAR_WEB_PORT  监听地址与端口
+# 环境变量（新前缀 SPOOFDET_*，仍兼容 SAFEAR_*）：
+#   SPOOFDET_DEVICE / SPOOFDET_CKPT / SPOOFDET_FEAT / SPOOFDET_HUBERT
+#   SPOOFDET_WEB_HOST / SPOOFDET_WEB_PORT / SPOOFDET_WEB_FIXED_THRESHOLD_SPOOF
 #   PYTHON                             解释器，默认 python3
-#
-# 用法：
-#   chmod +x start_web.sh && ./start_web.sh
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${ROOT}"
 
-# Prefer conda env ``safeear`` when present (base env often lacks torchaudio).
 if [[ -z "${CONDA_DEFAULT_ENV:-}" || "${CONDA_DEFAULT_ENV}" == "base" ]]; then
   if [[ -f "${HOME}/miniconda3/etc/profile.d/conda.sh" ]]; then
     # shellcheck source=/dev/null
     source "${HOME}/miniconda3/etc/profile.d/conda.sh"
-    conda activate safeear 2>/dev/null || true
+    conda activate spoofdet 2>/dev/null || conda activate safeear 2>/dev/null || true
   fi
 fi
 
-# HuBERT 最优 Web 推理配置（可用环境变量覆盖）
-HUBERT_CKPT="${ROOT}/Exps/Search_PoolMax_S3_ls002_hubert/checkpoints/epoch=4-val_eer=0.0009.ckpt"
-export SAFEAR_CKPT="${SAFEAR_CKPT:-${HUBERT_CKPT}}"
-export SAFEAR_FEAT="${SAFEAR_FEAT:-hubert}"
-export SAFEAR_HUBERT="${SAFEAR_HUBERT:-${ROOT}/model_zoos/hubert_base_ls960.pt}"
-export SAFEAR_WEB_FIXED_THRESHOLD_SPOOF="${SAFEAR_WEB_FIXED_THRESHOLD_SPOOF:-0.5}"
+DEFAULT_CKPT="${ROOT}/Exps/Search_PoolMax_S3_ls002_hubert/checkpoints/epoch=4-val_eer=0.0009.ckpt"
+export SPOOFDET_CKPT="${SPOOFDET_CKPT:-${SAFEAR_CKPT:-${DEFAULT_CKPT}}}"
+export SPOOFDET_FEAT="${SPOOFDET_FEAT:-${SAFEAR_FEAT:-hubert}}"
+export SPOOFDET_HUBERT="${SPOOFDET_HUBERT:-${SAFEAR_HUBERT:-${ROOT}/model_zoos/hubert_base_ls960.pt}}"
+export SPOOFDET_WEB_FIXED_THRESHOLD_SPOOF="${SPOOFDET_WEB_FIXED_THRESHOLD_SPOOF:-${SAFEAR_WEB_FIXED_THRESHOLD_SPOOF:-0.5}}"
 
 PYTHON="${PYTHON:-python3}"
-HOST="${SAFEAR_WEB_HOST:-0.0.0.0}"
-PORT="${SAFEAR_WEB_PORT:-8080}"
+HOST="${SPOOFDET_WEB_HOST:-${SAFEAR_WEB_HOST:-0.0.0.0}}"
+PORT="${SPOOFDET_WEB_PORT:-${SAFEAR_WEB_PORT:-8080}}"
 
-# 未显式指定 SAFEAR_DEVICE 时：无 CUDA 则自动 cpu；开 GPU 后重启即走 cuda
-if [[ -z "${SAFEAR_DEVICE:-}" ]] && ! "${PYTHON}" -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-  export SAFEAR_DEVICE=cpu
+if [[ -z "${SPOOFDET_DEVICE:-}${SAFEAR_DEVICE:-}" ]] && ! "${PYTHON}" -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+  export SPOOFDET_DEVICE=cpu
 fi
 
-# CPU 首次加载 HuBERT 较慢，延长健康检查等待
 HEALTH_WAIT_SEC=180
-if [[ "${SAFEAR_DEVICE:-}" == "cpu" ]]; then
+if [[ "${SPOOFDET_DEVICE:-${SAFEAR_DEVICE:-}}" == "cpu" ]]; then
   HEALTH_WAIT_SEC=600
 fi
 BASE_URL="http://127.0.0.1:${PORT}/"
@@ -94,11 +86,10 @@ PY
 
 echo "项目目录: ${ROOT}"
 echo "监听: ${HOST}:${PORT}（浏览器将打开 ${BASE_URL}）"
-echo "模型 CKPT: ${SAFEAR_CKPT}"
-echo "特征前端: ${SAFEAR_FEAT}  HuBERT: ${SAFEAR_HUBERT}"
-echo "推理设备: ${SAFEAR_DEVICE:-（自动：有 GPU 用 cuda，否则 cpu）}"
+echo "模型 CKPT: ${SPOOFDET_CKPT}"
+echo "特征前端: ${SPOOFDET_FEAT}  HuBERT: ${SPOOFDET_HUBERT}"
+echo "推理设备: ${SPOOFDET_DEVICE:-${SAFEAR_DEVICE:-（自动：有 GPU 用 cuda，否则 cpu）}}"
 echo "按 Ctrl+C 停止服务"
-echo "提示: HuBERT 在线推理建议 ≥8GB 内存；开 GPU 后无需改配置，重启 ./start_web.sh 即可。"
 echo ""
 
 "${PYTHON}" -m uvicorn web.api:app --host "${HOST}" --port "${PORT}" &
@@ -108,7 +99,7 @@ if wait_for_health "${HEALTH_WAIT_SEC}"; then
   echo "服务已就绪，正在打开浏览器..."
   open_browser "${BASE_URL}"
 else
-  echo "警告: 在超时内未能连上 ${HEALTH_URL}，仍尝试打开浏览器（模型较大时可能仍在加载）。" >&2
+  echo "警告: 在超时内未能连上 ${HEALTH_URL}，仍尝试打开浏览器。" >&2
   open_browser "${BASE_URL}"
 fi
 

@@ -40,7 +40,7 @@ def load_detector_bundle(
     pt_path: str,
     map_location: Optional[str] = None,
 ) -> Tuple[torch.nn.Module, Dict[str, Any]]:
-    from safeear.models.detector_transformer import FrameTransformerDetector
+    from spoofdet.models.detector_transformer import FrameTransformerDetector
 
     bundle = torch.load(pt_path, map_location=map_location or "cpu")
     if not isinstance(bundle, dict) or "state_dict" not in bundle:

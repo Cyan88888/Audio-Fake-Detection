@@ -212,7 +212,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
         return out
 
     def _apply_periodic_time_flip(self, feat: torch.Tensor) -> torch.Tensor:
-        """Within each fixed-length segment along T, reverse frame order (cf. SafeEar forward)."""
+        """Within each fixed-length segment along T, reverse frame order."""
         if self.aug_periodic_time_flip_prob <= 0.0 or self.aug_periodic_time_flip_size <= 1:
             return feat
         if feat.dim() != 3:
@@ -233,7 +233,7 @@ class TransformerSpoofTrainer(pl.LightningModule):
         return out
 
     def _apply_periodic_frame_shuffle(self, feat: torch.Tensor) -> torch.Tensor:
-        """Within each fixed-length segment along T, shuffle frames (cf. SafeEar1s forward)."""
+        """Within each fixed-length segment along T, shuffle frames."""
         if self.aug_periodic_frame_shuffle_prob <= 0.0 or self.aug_periodic_frame_shuffle_size <= 1:
             return feat
         if feat.dim() != 3:

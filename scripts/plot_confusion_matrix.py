@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-从 SafeEar 导出的混淆矩阵 CSV 绘制热力图（论文 / 答辩用）。
+从导出的混淆矩阵 CSV 绘制热力图（论文 / 答辩用）。
 
 用法:
   python scripts/plot_confusion_matrix.py \
@@ -128,7 +128,7 @@ def plot_confusion_matrix(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Plot confusion matrix from SafeEar CSV")
+    p = argparse.ArgumentParser(description="Plot confusion matrix from exported CSV")
     p.add_argument("--csv", required=True, help="Path to *_confusion_matrix.csv")
     p.add_argument("--out", default="", help="Output PNG path (default: same dir as CSV, .png)")
     p.add_argument("--title", default="", help="Figure title")
