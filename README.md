@@ -37,6 +37,3 @@ python test.py --conf_dir config/ablation_supplement/m0_base.yaml \
 - `web/`：FastAPI + React 演示界面
 - `Exps/`：实验输出与 checkpoint
 
-## 致谢
-
-本仓库在 [SafeEar](https://github.com/LetterLiGo/SafeEar) 代码基础上改造，聚焦 HuBERT + Transformer 伪造检测；原项目许可证见 `LICENSE`。
